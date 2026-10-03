@@ -1,0 +1,29 @@
+{
+  "name": "@cherami/sdk",
+  "version": "0.1.0",
+  "description": "Official Cherami HTTP client for Node.js: inboxes, correspondence, drafts, attachments and conversations.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Cherami",
+  "engines": { "node": ">=24" },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js", "default": "./dist/index.js" } },
+  "files": ["dist", "LICENSE", "README.md"],
+  "sideEffects": false,
+  "repository": { "type": "git", "url": "git+https://github.com/cherami-mail/cherami-typescript.git" },
+  "homepage": "https://cherami.to/docs/guides/typescript",
+  "bugs": { "url": "https://github.com/cherami-mail/cherami-typescript/issues" },
+  "keywords": ["cherami", "email", "sdk", "typescript", "ai-agents"],
+  "publishConfig": { "access": "public" },
+  "scripts": {
+    "generate": "bun scripts/generate.mts",
+    "build": "bun run generate && bunx --bun tsc -p tsconfig.json",
+    "check": "bunx --bun tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3"
+  }
+}
