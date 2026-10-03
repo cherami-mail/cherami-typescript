@@ -1,19 +1,41 @@
 # Contributing
 
-This repository contains the Node.js SDK, not the Cherami service. Report a reproducible SDK issue without API keys, mail bodies, or private attachments. Include the Node version, package version, operation, and request ID when available. For security issues or private account support, email hello@cherami.to rather than opening a public issue.
+Contributions to the Cherami Node.js SDK are welcome. For a bug report, include a minimal reproduction, Node.js and SDK versions, the operation, and a request ID when available. Leave out API keys, mail bodies, and private attachments. Send security issues or private account questions to hello@cherami.to rather than opening a public issue.
 
-## Source and generation
+## Local development
 
-Use Bun for dependency/tooling work. Install with `bun install --frozen-lockfile` and build with `bun run build`. Generated `src/schema.ts`, `src/models.ts`, and `src/operations.ts` are checked in for review; change their generator or contract input, not the generated files alone.
+Use Node.js 24+ for running consumer examples and Bun for development tooling:
 
-`openapi.json` is a selected snapshot of the service's public HTTP contract. `operations.json` explicitly fixes SDK coverage; a new service operation is not automatically SDK scope. Update the snapshot from an approved service contract revision, regenerate, and review changes together. Keep service documentation canonical on cherami.to, with package-specific setup and examples here.
+```sh
+bun install --frozen-lockfile
+bun run build
+```
 
-Transport, pagination, binary handling and send recovery are handwritten. Do not add automatic retries, redirect following, credential issuance, provider-outcome exceptions, or key replacement during recovery. Preserve raw response fields and accepted/rejected/unknown outcomes. Type generation does not establish runtime semantics.
+The build generates the client types and methods, then emits JavaScript and declarations to `dist`. `bun run check` checks TypeScript without emitting. See [examples/README.md](examples/README.md) for running the mail examples.
 
-Use proportionate manual checks, including an isolated Node consumer of the packed artifact. Do not introduce automated tests. Exercise network uncertainty and expiry with local fixtures rather than real outbound mail. Node consumer-runtime checks are separate from Bun tooling. Never exercise examples against an account without authorization for the actual reads or writes.
+## Making changes
 
-## Release
+Transport, pagination, attachment handling, and send recovery are handwritten in `src`. The checked-in `src/schema.ts`, `src/models.ts`, and `src/operations.ts` are generated: edit the generator or contract input, then regenerate rather than editing their output alone.
 
-Publication requires maintainer authorization. Build, inspect `bun pm pack --dry-run`, and inspect the real tarball before release. It should contain only `package.json`, README, LICENSE and `dist` JavaScript/declarations, with no secrets, private service source, or workspace dependencies. Verify the exported repository builds independently with its own lockfile.
+`openapi.json` contains the SDK's selected HTTP contract, and `operations.json` selects its methods. Discuss new operations or contract changes with a maintainer before implementing them. SDK behavior must stay consistent with the service's [HTTP reference](https://cherami.to/docs/api).
 
-Publish a reviewed tarball only after the public source repository and package metadata agree. No release workflow publishes automatically. Scoped npm publication requires public access and an authorized organization account; follow npm's current authentication requirements. Publishing the package does not deploy the website examples.
+Preserve these client guarantees when changing behavior:
+
+- Requests are not automatically retried and redirects are not followed.
+- Provider acceptance, rejection, and uncertain sending outcomes remain response data, not HTTP exceptions.
+- Recovery reuses the original payload, retry key, and deadline. Restoring a record must not create a new send intent.
+- Responses retain the HTTP fields, with status, headers, and request ID available to callers.
+
+In your pull request, explain the problem, the proposed change, and how you checked it. Update examples or documentation when usage changes.
+
+## Checking changes
+
+This project uses proportionate manual verification rather than automated tests. Check the affected behavior and describe what you observed, including anything you could not verify. Use local HTTP fixtures for network failures and recovery expiry, not real outbound mail. Run account examples only with permission for the reads or sends involved.
+
+For packaging or compatibility changes, inspect a packed artifact and try it from an isolated Node.js application. A successful Bun build alone does not establish that the published package works in Node.js.
+
+## Releases
+
+Maintainers publish releases manually. Before publication, verify the repository builds independently, inspect the package contents, and check that source and package metadata agree. The package should contain only `package.json`, `README.md`, `LICENSE`, and compiled JavaScript/declarations in `dist`.
+
+Publish the reviewed tarball rather than repacking an unchecked working tree.

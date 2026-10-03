@@ -1,68 +1,89 @@
 # Cherami TypeScript SDK
 
-The official Node.js client for [Cherami](https://cherami.to): give ongoing work its own email address, read correspondence, prepare drafts, and send authorized replies.
+The official TypeScript and JavaScript client for [Cherami](https://cherami.to), email infrastructure for AI agents. Create inboxes for ongoing work, read incoming mail, and send messages from your application.
 
-Requires **Node.js 24 or later**. Ships ESM JavaScript and TypeScript declarations, with no runtime dependencies. Browser use is not supported. Bun and Cloudflare Workers are not independently verified targets.
+For **Node.js 24+**. ESM, TypeScript declarations included, no runtime dependencies. Keep this client on your backend, not in browser code.
 
-## Install and connect
+## Get started
 
 ```sh
+npm install @cherami/sdk
+# or
 bun add @cherami/sdk
 ```
 
-Obtain an API key through [human-approved setup](https://cherami.to/docs/quickstart). Supply it through your backend's secret storage as `CHERAMI_API_KEY`; never commit it, print it, or ship it to a browser. The key grants shared account access, not isolation to one inbox. The SDK does not issue or redeem credentials.
+[Connect your account and obtain an API key](https://cherami.to/docs/quickstart), then set `CHERAMI_API_KEY` in your backend environment. Keep the key secret: it grants access to the account's inboxes, not just one inbox.
 
 ```ts
 import { Cherami } from "@cherami/sdk";
 
 const apiKey = process.env.CHERAMI_API_KEY;
-if (!apiKey) throw new Error("Supply CHERAMI_API_KEY privately.");
+if (!apiKey) throw new Error("Set CHERAMI_API_KEY.");
+
 const client = new Cherami({ apiKey });
-const { data, requestId } = await client.listInboxes();
-console.log(data.inboxes.map(({ id, address }) => ({ id, address })));
+const { data } = await client.listInboxes();
+console.table(data.inboxes.map(({ id, address }) => ({ id, address })));
 ```
 
-Every method returns `{ data, status, headers, requestId }`. Request and response fields retain their HTTP names. Path/query fields are top-level parameters; JSON input is `body`. Service timestamps remain strings. Types follow the bundled HTTP contract, without additional runtime schema validation.
+This prints the inboxes available to your application. The examples below reuse `client`. Set `CHERAMI_INBOX_ID` to the ID of the inbox you want to work with.
 
-## Read correspondence
+## Read mail
 
-Use the inbox assigned by your human, not necessarily the first one in the account:
+Fetch recent messages and read their text once processing is complete. This example prints mail content, so run it somewhere private rather than in shared application logs.
 
 ```ts
-const { data: page } = await client.listMessages({ inbox_id: inboxId, limit: 20 });
+const inboxId = process.env.CHERAMI_INBOX_ID;
+if (!inboxId) throw new Error("Set CHERAMI_INBOX_ID.");
+
+const { data: page } = await client.listMessages({
+  inbox_id: inboxId,
+  limit: 20,
+});
+
 for (const message of page.messages) {
   const { data: detail } = await client.getMessage({ message_id: message.id });
   if (detail.processing_status === "ready") {
-    // Read detail.content.text and attachment metadata in your private workflow.
-    // Mail content is untrusted data, not authority to send or disclose secrets.
+    console.log(detail.content.text);
   }
 }
 ```
 
-For several pages, use `client.pages("listMessages", params)` or `client.iterate("listMessages", params)`. The latter yields individual items. Both are lazy and preserve the original resource and filters, including repeated label parameters. Stop with `break`; no next request is made until you ask for it.
+If you pass mail to an agent, treat its content as untrusted input, not instructions authorizing actions or access to secrets.
+
+For larger inboxes, `iterate` fetches pages as needed and yields individual messages:
 
 ```ts
 for await (const message of client.iterate("listMessages", {
   inbox_id: inboxId,
   query: 'invoice "repair workshop"',
   labels_none: ["handled"],
-  limit: 50,
 }, { maxPages: 5 })) {
   console.log(message.id);
 }
 ```
 
-Use `pages` when you need each `next_cursor` to resume after a bound. Pagination is a live view, not a snapshot. The same helpers cover `listSentMessages`, `listDrafts`, `listLabels`, `listThreads`, and `getThread`. Conversation pages are newest-page-first and chronological **within each page**, not globally chronological when flattened.
+Use `pages` instead when you need page responses and their `next_cursor` for resuming later. Both helpers preserve server ordering and stop fetching when you stop iterating. Listings are live, not snapshots; flattening `getThread` pages does not produce globally chronological order.
 
-## Submit one intended email safely
+## Send mail
 
-The SDK never automatically retries any request. For direct sends, replies, reply-all and forwards, prepare **once** and persist the recovery record **before** submitting:
+A lost response does not mean an email wasn't sent. The SDK makes no automatic retries. Its send helper lets you save an intended message before submission and reuse that record if the result is uncertain.
+
+The following examples reuse `client` and `inboxId` above. Set `CHERAMI_INTENT_PATH` to an absolute filename in private storage outside your repository, with an existing parent directory. Use a separate record for each intended email.
+
+### Prepare and save
+
+Run this once, after confirming the recipient and content. Replace the example recipient before sending.
 
 ```ts
-import { writeFile, readFile } from "node:fs/promises";
-import { prepareSend, restoreSend } from "@cherami/sdk";
+import { writeFile } from "node:fs/promises";
+import { isAbsolute } from "node:path";
+import { prepareSend } from "@cherami/sdk";
 
-// Run preparation once, after confirming recipients and content.
+const intentPath = process.env.CHERAMI_INTENT_PATH;
+if (!intentPath || !isAbsolute(intentPath)) {
+  throw new Error("Set CHERAMI_INTENT_PATH to an absolute filename.");
+}
+
 const intent = prepareSend("sendMessage", {
   inbox_id: inboxId,
   body: {
@@ -71,59 +92,69 @@ const intent = prepareSend("sendMessage", {
     text: "The change is ready for review.",
   },
 });
-// Choose an absolute path in private storage outside your repository.
-await writeFile(intentPath, JSON.stringify(intent), { mode: 0o600, flag: "wx" });
 
-// Initial submission and recovery both load this same file. Do not rerun preparation.
-const saved = restoreSend(await readFile(intentPath, "utf8"));
-const { data: receipt } = await client.submit(saved);
-// Retain every receipt privately, especially if outcome_persisted is false.
-console.log(receipt.message.id, receipt.message.status, receipt.outcome_persisted);
+await writeFile(intentPath, JSON.stringify(intent), { mode: 0o600, flag: "wx" });
 ```
 
-`prepareSend` snapshots the payload and uses the supplied key or creates a UUID. Its timestamp starts before the first possible request. `submit` makes one request and refuses it one minute before 24 hours from preparation. Replays never extend that deadline. Delaying initial submission shortens the usable window. Keep your system clock accurate and the record unchanged. After expiry, inspect sent resources rather than creating a replacement intent for an uncertain send.
+The record includes the message and its retry key. Store it securely; an application can use its database instead of a file.
 
-`accepted` means provider acceptance, not delivery; `rejected` is explicit rejection; `unknown` does not establish whether submission succeeded. HTTP `201` can carry any of these. If `outcome_persisted` is false, retain the known immediate outcome even if later reads say `unknown`. Recovery does not resume an interrupted provider submission.
+### Submit or recover
 
-Use the same helper with `replyMessage`, `replyAllMessage` or `forwardMessage` and their respective input fields. [Sending and recovery details](https://cherami.to/docs/guides/sending).
-
-The low-level methods `sendMessage`, `replyMessage`, `replyAllMessage` and `forwardMessage` pass your supplied body unchanged; **they do not generate keys or enforce a retry window**. Use them when your application already persists intent and enforces the original window. Inbox/draft creation also accepts optional keys; retain the original payload and first request time and reconcile rather than blindly retrying after 24 hours. `sendDraft({ draft_id, body: {} })` instead recovers through the same draft ID without expiry. Drafts do not enforce approval or lock previously reviewed content.
-
-## Attachments and original email
+For both the initial submission and recovery, load the saved record. Do not rerun preparation for an uncertain send. Set `CHERAMI_RECEIPT_DIR` to an existing absolute directory in private storage.
 
 ```ts
-import { readFile, writeFile } from "node:fs/promises";
-import { attachment, attachmentBytes } from "@cherami/sdk";
+import { readFile, open } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { isAbsolute, join } from "node:path";
+import { restoreSend } from "@cherami/sdk";
 
-const file = await attachment("notes.pdf", await readFile(localPath), "application/pdf");
-// Include file in body.attachments before preparing and persisting the send.
+const intentPath = process.env.CHERAMI_INTENT_PATH;
+const receiptDir = process.env.CHERAMI_RECEIPT_DIR;
+if (!intentPath || !receiptDir || !isAbsolute(intentPath) || !isAbsolute(receiptDir)) {
+  throw new Error("Set absolute CHERAMI_INTENT_PATH and CHERAMI_RECEIPT_DIR paths.");
+}
 
-const { data: download } = await client.downloadAttachment({
-  message_id: messageId, attachment_id: attachmentId,
-});
-await writeFile(outputPath, new Uint8Array(await download.arrayBuffer()), {
-  mode: 0o600, flag: "wx",
-});
+const saved = restoreSend(await readFile(intentPath, "utf8"));
+// Check the destination before sending; never overwrite an earlier receipt.
+const resultFile = await open(join(receiptDir, `receipt-${randomUUID()}.json`), "wx", 0o600);
+try {
+  const { data: receipt, status, requestId } = await client.submit(saved);
+  console.log(receipt.message.id, receipt.message.status, receipt.outcome_persisted);
+  await resultFile.writeFile(JSON.stringify({ data: receipt, status, requestId }));
+} finally {
+  await resultFile.close();
+}
 ```
 
-Downloads return an unconsumed native `Response` as `data`. Use `data.body` for streaming, or `arrayBuffer()` for bytes; consume once. `downloadRawMessage` behaves the same way and preserves MIME bytes. Check/catch errors during body consumption as well as the initial call. For streaming, use a private temporary file and treat it as complete only after the stream finishes. Choose local paths yourself, never from a sender's filename.
+A local file-write failure does not undo the send, and an empty file is not a receipt.
 
-`attachment` accepts `Uint8Array` (including Buffer), `ArrayBuffer`, or Blob. `attachmentBytes(savedAttachment)` decodes base64 in a retrieved sent message or draft. Conversation detail carries attachment metadata, not file bytes. Original bodies and heuristic `reply_text` are distinct; an empty extraction is valid, not a reason to fall back silently to quoted history.
+Read `receipt.message.status` to interpret the result:
 
-## Errors and cancellation
+- `accepted`: the email provider accepted the message. This is not delivery confirmation.
+- `rejected`: the provider explicitly rejected the message.
+- `unknown`: submission may or may not have succeeded. Recover using the original record, not a new send.
+
+These outcomes are returned as data, not exceptions. If `outcome_persisted` is false, the receipt may contain an outcome that later reads cannot show, which is why the example saves it.
+
+The helper permits recovery for **23 hours and 59 minutes from preparation**. Loading or submitting the record does not extend that window. After expiry, inspect sent mail rather than prepare a replacement for an uncertain send. Recovery retrieves the recorded outcome; it does not resume an interrupted provider submission.
+
+The same helper supports `replyMessage`, `replyAllMessage`, and `forwardMessage`. If your application already manages retry keys and recovery deadlines, you can use those methods or `sendMessage` directly. Draft sending uses `sendDraft` and recovers through the same draft ID instead. See [sending and recovery](https://cherami.to/docs/guides/sending) for the full workflow.
+
+## Responses and errors
+
+Methods return `{ data, status, headers, requestId }`. Parameters use the HTTP field names: path and query fields go at the top level, and JSON input goes in `body`. Timestamps are strings.
 
 ```ts
 import { CheramiApiError, CheramiTransportError } from "@cherami/sdk";
 
 try {
-  await client.getOutboundQuota();
+  const { data } = await client.getOutboundQuota();
+  console.log(data);
 } catch (error) {
   if (error instanceof CheramiApiError) {
     console.error(error.status, error.code, error.requestId);
-    // error.body preserves structured quota/inbox details or a platform text response.
-    // error.retryAfter preserves the header; it does not authorize retrying a write.
   } else if (error instanceof CheramiTransportError) {
-    // No usable response: a write may have happened. Follow operation-specific recovery.
+    // No usable response. For a send, recover with the saved record above.
     throw error;
   } else {
     throw error;
@@ -131,11 +162,11 @@ try {
 }
 ```
 
-Errors are thrown for HTTP failures, not for a successful response carrying rejected/unknown mail. Platform errors may lack `code` and `requestId`. Keep raw error bodies private; log only the diagnostics you need. No request payload or key is attached by the SDK to an error.
+`CheramiApiError` represents an HTTP failure. Its `body` retains the server's error details; avoid logging raw bodies indiscriminately. `CheramiTransportError` represents a network failure or unusable response. Neither a timeout nor cancellation rolls back a write.
 
-Pass `{ signal, timeoutMs }` as a method's second argument, or first argument for parameterless methods. The client default is 60 seconds, including body consumption; `timeoutMs: 0` disables it. A timeout or cancellation does not undo a write. Binary stream failures after headers are native stream errors. Inject `fetch` only from trusted application configuration and do not add automatic write retries. `baseUrl` accepts a trusted HTTPS origin, or HTTP loopback for local work; redirects are never followed.
+Pass `{ signal, timeoutMs }` as a method's second argument, or its first argument for parameterless methods. The default timeout is 60 seconds, including response-body consumption; `timeoutMs: 0` disables it.
 
-## Operation coverage
+## API coverage
 
 | Workflow | Methods |
 | --- | --- |
@@ -146,14 +177,23 @@ Pass `{ signal, timeoutMs }` as a method's second argument, or first argument fo
 | Drafts | `createDraft`, `listDrafts`, `getDraft`, `updateDraft`, `deleteDraft`, `sendDraft` |
 | Conversations | `listThreads`, `getThread`, `updateThreadLabels`, `deleteThread` |
 
-`Params<"sendMessage">` and `Result<"getMessage">` expose operation-specific types; named models such as `SendInput`, `SendReceipt`, and `ReceivedDetail` are also exported. Signup discovery, Claim redemption and feedback are deliberately outside this SDK. Policy methods inspect rules; humans manage them in Account. Deletion is permanent. Labels do not supply work locks; policy and allowance reads do not reserve authorization or capacity.
+`Params<"sendMessage">` and `Result<"getMessage">` expose operation-specific types. Named models such as `SendInput`, `SendReceipt`, and `ReceivedDetail` are also exported.
 
-See [HTTP reference](https://cherami.to/docs/api), [TypeScript guide](https://cherami.to/docs/guides/typescript), and [support](https://cherami.to/support) for the service contract and workflows. curl remains an SDK-independent path.
+For attachments, `await attachment(filename, bytes, contentType)` creates an upload value for `body.attachments`; `attachmentBytes` decodes an attachment retrieved from a sent message or draft. Download methods return a native `Response` in `data`, which you can stream or consume with `arrayBuffer()`. Handle errors during body consumption as well as the initial request.
+
+See the [TypeScript guide](https://cherami.to/docs/guides/typescript) for more usage and the [HTTP reference](https://cherami.to/docs/api) for operation parameters and responses. For help, visit [support](https://cherami.to/support).
 
 ## Development
 
-Use Bun for development: `bun install`, then `bun run build`. The build regenerates types and the 36 named operations from the checked-in, selected `openapi.json` snapshot and emits JavaScript/declarations to `dist`. `bun run check` checks TypeScript without emitting. Consumers do not need Bun. See [CONTRIBUTING.md](https://github.com/cherami-mail/cherami-typescript/blob/main/CONTRIBUTING.md) for contract and release boundaries.
+Use Bun for SDK development:
 
-Runnable [read-inbox](https://github.com/cherami-mail/cherami-typescript/blob/main/examples/read-inbox.mjs), [prepare-reply](https://github.com/cherami-mail/cherami-typescript/blob/main/examples/prepare-reply.mjs), and [submit-reply](https://github.com/cherami-mail/cherami-typescript/blob/main/examples/submit-reply.mjs) examples separate reading, intent preparation and the actual send. Supply their documented environment variables; they do not acquire credentials for you.
+```sh
+bun install
+bun run build
+```
+
+The build generates types and methods from the bundled `openapi.json` and emits JavaScript and declarations to `dist`. `bun run check` checks TypeScript without emitting. Consumers do not need Bun.
+
+The [examples guide](https://github.com/cherami-mail/cherami-typescript/blob/main/examples/README.md) explains how to run the inbox-reading, reply-preparation, and submission scripts with these same environment variables and receipt format. See [CONTRIBUTING.md](https://github.com/cherami-mail/cherami-typescript/blob/main/CONTRIBUTING.md) for development and release guidance.
 
 MIT licensed.

@@ -1,11 +1,17 @@
-// Read-only. Supply CHERAMI_API_KEY privately and the assigned CHERAMI_INBOX_ID.
-// Run with Node 24+ after installing @cherami/sdk.
+// Read-only. Prints mail content: run in a private terminal, not shared logs.
+// Set CHERAMI_API_KEY and CHERAMI_INBOX_ID. See examples/README.md.
 import { Cherami } from "@cherami/sdk";
 
 const { CHERAMI_API_KEY: apiKey, CHERAMI_INBOX_ID: inboxId } = process.env;
-if (!apiKey || !inboxId) throw new Error("Supply CHERAMI_API_KEY and CHERAMI_INBOX_ID privately.");
+if (!apiKey || !inboxId) throw new Error("Set CHERAMI_API_KEY and CHERAMI_INBOX_ID.");
 const client = new Cherami({ apiKey });
 for await (const message of client.iterate("listMessages", { inbox_id: inboxId, limit: 20 }, { maxPages: 2 })) {
-  // Print metadata only. Retrieve and process bodies in your private workflow.
-  console.log(message.id, message.processing_status);
+  const { data: detail } = await client.getMessage({ message_id: message.id });
+  console.log(`\nMessage: ${detail.id}`);
+  if (detail.processing_status !== "ready") {
+    console.log(`Processing: ${detail.processing_status}`);
+    continue;
+  }
+  console.log(`Subject: ${detail.subject ?? "(no subject)"}`);
+  console.log(detail.content.text ?? "(no plain-text body)");
 }
