@@ -12,7 +12,7 @@ npm install @cherami/sdk
 bun add @cherami/sdk
 ```
 
-[Connect your account and obtain an API key](https://cherami.to/docs/quickstart), then set `CHERAMI_API_KEY` in your backend environment. Keep the key secret: it grants access to the account's inboxes, not just one inbox.
+[Connect your account and obtain an API key](https://cherami.to/docs/quickstart), then supply it privately as `CHERAMI_API_KEY` in your backend environment. The key grants access to every inbox on the account.
 
 ```ts
 import { Cherami } from "@cherami/sdk";
@@ -31,7 +31,7 @@ This prints the inboxes available to your application. The examples below reuse 
 
 For repeated checks, see [webhooks and polling](https://cherami.to/docs/troubleshooting#does-cherami-provide-webhooks) and the [receiving guide](https://cherami.to/docs/guides/receiving). They cover bounded runs, pagination, unfinished content and handled-message tracking.
 
-Fetch recent messages and read their text once processing is complete. This example prints mail content, so run it somewhere private rather than in shared application logs.
+Fetch recent messages and read their text once processing is complete.
 
 ```ts
 const inboxId = process.env.CHERAMI_INBOX_ID;
@@ -68,7 +68,7 @@ Use `pages` instead when you need page responses and their `next_cursor` for res
 
 The SDK makes no automatic retries. Its send helper lets you save an intended message before submission and reuse that record if the response is lost, so recovery reuses the original retry key instead of sending twice.
 
-The following examples reuse `client` and `inboxId` above. Set `CHERAMI_INTENT_PATH` to an absolute filename in private storage outside your repository, with an existing parent directory. Use a separate record for each intended email.
+The following examples reuse `client` and `inboxId` above. Set `CHERAMI_INTENT_PATH` to where you will save the send record, one file per intended email.
 
 ### Prepare and save
 
@@ -76,13 +76,10 @@ Run this once, after confirming the recipient and content. Replace the example r
 
 ```ts
 import { writeFile } from "node:fs/promises";
-import { isAbsolute } from "node:path";
 import { prepareSend } from "@cherami/sdk";
 
 const intentPath = process.env.CHERAMI_INTENT_PATH;
-if (!intentPath || !isAbsolute(intentPath)) {
-  throw new Error("Set CHERAMI_INTENT_PATH to an absolute filename.");
-}
+if (!intentPath) throw new Error("Set CHERAMI_INTENT_PATH.");
 
 const intent = prepareSend("sendMessage", {
   inbox_id: inboxId,
@@ -93,37 +90,26 @@ const intent = prepareSend("sendMessage", {
   },
 });
 
-await writeFile(intentPath, JSON.stringify(intent), { mode: 0o600, flag: "wx" });
+await writeFile(intentPath, JSON.stringify(intent));
 ```
 
 The record includes the message and its retry key. An application can use its database instead of a file.
 
 ### Submit or recover
 
-For both the initial submission and recovery, load the saved record rather than preparing again. Set `CHERAMI_RECEIPT_DIR` to an existing absolute directory in private storage.
+For both the initial submission and recovery, load the saved record rather than preparing again:
 
 ```ts
-import { readFile, open } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
-import { isAbsolute, join } from "node:path";
+import { readFile } from "node:fs/promises";
 import { restoreSend } from "@cherami/sdk";
 
 const intentPath = process.env.CHERAMI_INTENT_PATH;
-const receiptDir = process.env.CHERAMI_RECEIPT_DIR;
-if (!intentPath || !receiptDir || !isAbsolute(intentPath) || !isAbsolute(receiptDir)) {
-  throw new Error("Set absolute CHERAMI_INTENT_PATH and CHERAMI_RECEIPT_DIR paths.");
-}
+if (!intentPath) throw new Error("Set CHERAMI_INTENT_PATH.");
 
 const saved = restoreSend(await readFile(intentPath, "utf8"));
-// Check the destination before sending; never overwrite an earlier receipt.
-const resultFile = await open(join(receiptDir, `receipt-${randomUUID()}.json`), "wx", 0o600);
-try {
-  const { data: receipt, status, requestId } = await client.submit(saved);
-  console.log(receipt.message.id, receipt.message.status, receipt.outcome_persisted);
-  await resultFile.writeFile(JSON.stringify({ data: receipt, status, requestId }));
-} finally {
-  await resultFile.close();
-}
+const { data: receipt, status, requestId } = await client.submit(saved);
+console.log(receipt.message.id, receipt.message.status, receipt.outcome_persisted);
+// Keep { data: receipt, status, requestId } as this attempt's receipt.
 ```
 
 Read `receipt.message.status` to interpret the result:
@@ -132,7 +118,7 @@ Read `receipt.message.status` to interpret the result:
 - `rejected`: the provider explicitly rejected the message.
 - `unknown`: submission may or may not have succeeded. Recover using the original record.
 
-These outcomes are returned as data, not exceptions. If `outcome_persisted` is false, the receipt may contain an outcome that later reads cannot show, which is why the example saves it.
+These outcomes are returned as data, not exceptions. Keep every receipt: if `outcome_persisted` is false, it may contain an outcome that later reads cannot show.
 
 The helper permits recovery for **23 hours and 59 minutes from preparation**. After expiry, inspect sent mail instead.
 
@@ -192,6 +178,6 @@ bun run build
 
 The build generates types and methods from the bundled `openapi.json` and emits JavaScript and declarations to `dist`. `bun run check` checks TypeScript without emitting. Consumers do not need Bun.
 
-The [examples guide](https://github.com/cherami-mail/cherami-typescript/blob/main/examples/README.md) explains how to run the inbox-reading, reply-preparation, and submission scripts with these same environment variables and receipt format. See [CONTRIBUTING.md](https://github.com/cherami-mail/cherami-typescript/blob/main/CONTRIBUTING.md) for development and release guidance.
+The [examples guide](https://github.com/cherami-mail/cherami-typescript/blob/main/examples/README.md) explains how to run the inbox-reading, reply-preparation, and submission scripts with these same environment variables. See [CONTRIBUTING.md](https://github.com/cherami-mail/cherami-typescript/blob/main/CONTRIBUTING.md) for development and release guidance.
 
 MIT licensed.

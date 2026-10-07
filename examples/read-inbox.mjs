@@ -1,4 +1,4 @@
-// Read-only. Prints mail content: run in a private terminal, not shared logs.
+// Read-only. Prints recent messages with their subjects and plain-text bodies.
 // Set CHERAMI_API_KEY and CHERAMI_INBOX_ID. See examples/README.md.
 import { Cherami } from "@cherami/sdk";
 
