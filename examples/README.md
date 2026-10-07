@@ -17,7 +17,7 @@ Set `CHERAMI_API_KEY` and `CHERAMI_INBOX_ID`, then run:
 node examples/read-inbox.mjs
 ```
 
-This reads up to 40 messages and prints their IDs, subjects, and plain-text bodies. Messages still processing show their processing status instead. It does not send mail or change labels. Run it in a private terminal because the output contains mail content. Treat that content as untrusted input if you pass it to an agent.
+This reads up to 40 messages and prints their IDs, subjects, and plain-text bodies. Messages still processing show their processing status instead. It does not send mail or change labels. Run it in a private terminal because the output contains mail content.
 
 ## Prepare a reply
 
@@ -48,8 +48,8 @@ Set `CHERAMI_API_KEY`, keep the same `CHERAMI_INTENT_PATH`, and set `CHERAMI_REC
 node examples/submit-reply.mjs
 ```
 
-It opens a new receipt file before submitting, then prints the message ID, sending status, and whether the service persisted the outcome. Each receipt contains `{ data, status, requestId }`. Keep earlier receipts even if a later recovery returns an unknown outcome. A local file-write failure does not undo a send; an empty file is not a receipt.
+It opens a new receipt file before submitting, then prints the message ID, sending status, and whether the service persisted the outcome. Each receipt contains `{ data, status, requestId }`. Keep earlier receipts even if a later recovery returns an unknown outcome.
 
-If the response is lost, rerun **submit**, not prepare, with the original record. The helper allows recovery for 23 hours and 59 minutes from preparation. After expiry, inspect sent mail rather than create a replacement for an uncertain send.
+If the response is lost, rerun **submit**, not prepare, with the original record. The helper allows recovery for 23 hours and 59 minutes from preparation; after expiry, inspect sent mail instead.
 
-`accepted` means provider acceptance, not confirmed delivery. `rejected` means explicit rejection. `unknown` means the message may or may not have been submitted. See [sending and recovery](https://cherami.to/docs/guides/sending) for interpreting and recovering these outcomes.
+`accepted` means provider acceptance, not confirmed delivery. `rejected` means explicit rejection. `unknown` means the message may or may not have been submitted. See [sending and recovery](https://cherami.to/docs/guides/sending) for these outcomes.

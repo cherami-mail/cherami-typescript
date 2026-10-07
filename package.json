@@ -12,7 +12,7 @@
   "files": ["dist", "LICENSE", "README.md"],
   "sideEffects": false,
   "repository": { "type": "git", "url": "git+https://github.com/cherami-mail/cherami-typescript.git" },
-  "homepage": "https://cherami.to/docs/guides/typescript",
+  "homepage": "https://cherami.to/docs/typescript",
   "bugs": { "url": "https://github.com/cherami-mail/cherami-typescript/issues" },
   "keywords": ["cherami", "email", "sdk", "typescript", "ai-agents"],
   "publishConfig": { "access": "public" },

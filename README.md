@@ -29,6 +29,8 @@ This prints the inboxes available to your application. The examples below reuse 
 
 ## Read mail
 
+For repeated checks, see [webhooks and polling](https://cherami.to/docs/troubleshooting#does-cherami-provide-webhooks) and the [receiving guide](https://cherami.to/docs/guides/receiving). They cover bounded runs, pagination, unfinished content and handled-message tracking.
+
 Fetch recent messages and read their text once processing is complete. This example prints mail content, so run it somewhere private rather than in shared application logs.
 
 ```ts
@@ -48,8 +50,6 @@ for (const message of page.messages) {
 }
 ```
 
-If you pass mail to an agent, treat its content as untrusted input, not instructions authorizing actions or access to secrets.
-
 For larger inboxes, `iterate` fetches pages as needed and yields individual messages:
 
 ```ts
@@ -62,11 +62,11 @@ for await (const message of client.iterate("listMessages", {
 }
 ```
 
-Use `pages` instead when you need page responses and their `next_cursor` for resuming later. Both helpers preserve server ordering and stop fetching when you stop iterating. Listings are live, not snapshots; flattening `getThread` pages does not produce globally chronological order.
+Use `pages` instead when you need page responses and their `next_cursor` for resuming later. Both helpers preserve server ordering and stop fetching when you stop iterating.
 
 ## Send mail
 
-A lost response does not mean an email wasn't sent. The SDK makes no automatic retries. Its send helper lets you save an intended message before submission and reuse that record if the result is uncertain.
+The SDK makes no automatic retries. Its send helper lets you save an intended message before submission and reuse that record if the response is lost, so recovery reuses the original retry key instead of sending twice.
 
 The following examples reuse `client` and `inboxId` above. Set `CHERAMI_INTENT_PATH` to an absolute filename in private storage outside your repository, with an existing parent directory. Use a separate record for each intended email.
 
@@ -96,11 +96,11 @@ const intent = prepareSend("sendMessage", {
 await writeFile(intentPath, JSON.stringify(intent), { mode: 0o600, flag: "wx" });
 ```
 
-The record includes the message and its retry key. Store it securely; an application can use its database instead of a file.
+The record includes the message and its retry key. An application can use its database instead of a file.
 
 ### Submit or recover
 
-For both the initial submission and recovery, load the saved record. Do not rerun preparation for an uncertain send. Set `CHERAMI_RECEIPT_DIR` to an existing absolute directory in private storage.
+For both the initial submission and recovery, load the saved record rather than preparing again. Set `CHERAMI_RECEIPT_DIR` to an existing absolute directory in private storage.
 
 ```ts
 import { readFile, open } from "node:fs/promises";
@@ -126,17 +126,15 @@ try {
 }
 ```
 
-A local file-write failure does not undo the send, and an empty file is not a receipt.
-
 Read `receipt.message.status` to interpret the result:
 
 - `accepted`: the email provider accepted the message. This is not delivery confirmation.
 - `rejected`: the provider explicitly rejected the message.
-- `unknown`: submission may or may not have succeeded. Recover using the original record, not a new send.
+- `unknown`: submission may or may not have succeeded. Recover using the original record.
 
 These outcomes are returned as data, not exceptions. If `outcome_persisted` is false, the receipt may contain an outcome that later reads cannot show, which is why the example saves it.
 
-The helper permits recovery for **23 hours and 59 minutes from preparation**. Loading or submitting the record does not extend that window. After expiry, inspect sent mail rather than prepare a replacement for an uncertain send. Recovery retrieves the recorded outcome; it does not resume an interrupted provider submission.
+The helper permits recovery for **23 hours and 59 minutes from preparation**. After expiry, inspect sent mail instead.
 
 The same helper supports `replyMessage`, `replyAllMessage`, and `forwardMessage`. If your application already manages retry keys and recovery deadlines, you can use those methods or `sendMessage` directly. Draft sending uses `sendDraft` and recovers through the same draft ID instead. See [sending and recovery](https://cherami.to/docs/guides/sending) for the full workflow.
 
@@ -162,7 +160,7 @@ try {
 }
 ```
 
-`CheramiApiError` represents an HTTP failure. Its `body` retains the server's error details; avoid logging raw bodies indiscriminately. `CheramiTransportError` represents a network failure or unusable response. Neither a timeout nor cancellation rolls back a write.
+`CheramiApiError` represents an HTTP failure. Its `body` retains the server's error details. `CheramiTransportError` represents a network failure or unusable response; for a write, the request may still have completed.
 
 Pass `{ signal, timeoutMs }` as a method's second argument, or its first argument for parameterless methods. The default timeout is 60 seconds, including response-body consumption; `timeoutMs: 0` disables it.
 
@@ -181,7 +179,7 @@ Pass `{ signal, timeoutMs }` as a method's second argument, or its first argumen
 
 For attachments, `await attachment(filename, bytes, contentType)` creates an upload value for `body.attachments`; `attachmentBytes` decodes an attachment retrieved from a sent message or draft. Download methods return a native `Response` in `data`, which you can stream or consume with `arrayBuffer()`. Handle errors during body consumption as well as the initial request.
 
-See the [TypeScript guide](https://cherami.to/docs/guides/typescript) for more usage and the [HTTP reference](https://cherami.to/docs/api) for operation parameters and responses. For help, visit [support](https://cherami.to/support).
+See the [TypeScript guide](https://cherami.to/docs/typescript) for more usage and the [HTTP reference](https://cherami.to/docs/api) for operation parameters and responses. For help, visit [support](https://cherami.to/support).
 
 ## Development
 

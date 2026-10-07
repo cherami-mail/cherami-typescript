@@ -11,7 +11,7 @@ export interface paths {
          * List inboxes
          * @description `GET /v1/inboxes` returns `200`.
          *
-         *     This list is not paginated. Use the returned `inbox_limit` as authoritative. `inbox_allowance` reports the cap, occupied slots and remaining slots as a current snapshot, not a reservation. List before creating or when recovering an uncertain allocation. Agents should use the human's assigned inbox, not assume every listed inbox is theirs to take over.
+         *     The list is not paginated. `inbox_limit` is the current cap; `inbox_allowance` reports the cap, occupied slots and remaining slots.
          */
         get: operations["listInboxes"];
         put?: never;
@@ -29,13 +29,11 @@ export interface paths {
          *
          *     Creation keys are scoped to the authenticated account across HTTP and MCP, independently of sending keys. Protection lasts **24 hours from successful allocation**, without renewal. Keyed results add `replayed` and `idempotency_expires_at`. Initial creation returns `201` with `replayed: false`; a matching retry returns `200` with `replayed: true` and the original inbox ID. Both supply `Location`.
          *
-         *     A replay returns the inbox's **current state**, not a frozen creation response. Later name edits are preserved. Retry with the original creation inputs, not those edited names. JSON property order is irrelevant; address-prefix case and surrounding whitespace, trimmed name whitespace, and absent/null/blank names normalize equivalently. Different validated inputs return `409 idempotency_conflict`.
+         *     A replay returns the inbox's **current state**, including later name edits. Retry with the original creation inputs, not those edited names. JSON property order is irrelevant; address-prefix case and surrounding whitespace, trimmed name whitespace, and absent/null/blank names normalize equivalently. Different validated inputs return `409 idempotency_conflict`. If the inbox has been deleted, a matching retry returns `409 idempotency_result_unavailable` and never allocates a replacement.
          *
-         *     Deleting the inbox does not free an active key. A matching retry returns `409 idempotency_result_unavailable`, never allocates a replacement and never restores the deleted inbox. Concurrent matching requests allocate only one inbox and consume one slot.
+         *     If creation's outcome is uncertain, reuse the original key and unchanged payload **within 24 hours of your first request**. Do not replace the key or choose another address to resolve uncertainty. Validation and allocation failures do not consume a key.
          *
-         *     If creation's outcome is uncertain, reuse the original key and unchanged payload **within 24 hours of your first request**. Do not replace the key or choose another address to resolve uncertainty. Validation and allocation failures that definitely precede creation do not consume a key; an infrastructure error may follow successful creation.
-         *
-         *     After expiry, the key no longer protects a request. List inboxes and reconcile the intended address instead of blindly creating again. An existing or retired address remains unavailable, but that is not a replay result. Unkeyed creation is supported: another request for the same address conflicts rather than returning the original resource. If its response was lost, list inboxes before deciding what to do.
+         *     After expiry, the key no longer protects a request: list inboxes and reconcile the intended address before creating again. Unkeyed creation is supported; a second request for the same address conflicts rather than returning the original resource.
          */
         post: operations["createInbox"];
         delete?: never;
@@ -53,7 +51,7 @@ export interface paths {
         };
         /**
          * Read an inbox
-         * @description Returns the owned inbox’s address and current names. Missing, deleted and other-account resources return 404. Names do not isolate agents or change ownership.
+         * @description Returns the owned inbox's address and current names. Missing, deleted and other-account resources return `404`.
          */
         get: operations["getInbox"];
         put?: never;
@@ -62,9 +60,9 @@ export interface paths {
          * Delete an inbox
          * @description `DELETE /v1/inboxes/{inbox_id}` returns `202`.
          *
-         *     Permanently deletes the inbox and its received mail, sent copies, attachments, and threads, including unfinished messages. Confirm the specific inbox and destructive scope with the human before calling it, especially with shared access. This is agent guidance, not an additional API approval flow.
+         *     Permanently deletes the inbox and its received mail, drafts, sent copies, attachments, and threads, including unfinished messages. Confirm the specific inbox and destructive scope with the human before calling it; the API has no separate approval step.
          *
-         *     The slot is freed and the address is permanently retired. Future incoming mail is rejected. Retrieval and new sends from the deleted inbox return `404`. Other inboxes and the credential remain unchanged. There is no undo or sending-quota refund.
+         *     The slot is freed. The address is permanently retired and no longer receives mail. Retrieval and new sends from the deleted inbox return `404`. Other inboxes and the credential remain unchanged. There is no undo or sending-quota refund.
          *
          *     Repeating DELETE is safe and can return `202` or `404`. Missing or other-account resources also return `404`. The service support inbox `hello@cherami.to` returns `409 protected_inbox` to its owner.
          *
@@ -77,9 +75,9 @@ export interface paths {
          * Edit inbox names
          * @description Supply one or both editable names.
          *
-         *     Returns `200` with the updated inbox. Omitted fields stay unchanged; null or blank clears a name. The same name limits apply as at creation. An empty object, unknown fields, address or `local_part` changes are rejected. If an update's response is lost, read the inbox before repeating a change that could overwrite another editor's work.
+         *     Returns `200` with the updated inbox. Omitted fields stay unchanged; null or blank clears a name. The same name limits apply as at creation. An empty object, unknown fields, address or `local_part` changes are rejected.
          *
-         *     Neither name changes ownership or permissions. A sender-name edit affects subsequent submissions, not historical mail or a replayed send. A send already in progress may retain the earlier name.
+         *     A sender-name edit affects subsequent sends, not historical mail or a replayed send.
          */
         patch: operations["updateInbox"];
         trace?: never;
@@ -97,9 +95,9 @@ export interface paths {
          *
          *     `enabled: false` means unrestricted by this control, even when saved addresses or domains remain. When enabled, every To/Cc/Bcc recipient must match an exact address or an exact domain; both lists empty blocks all sending. Local-part case is significant, domain case is not, and plus tags/dots remain distinct. Names do not participate in matching. Each list contains at most 100 normalized, unique entries. Domains are lowercase ASCII, including punycode; matching does not include subdomains unless listed separately.
          *
-         *     `revision` is the saved policy version, starting at `0` for an unconfigured inbox. Inspection is not authorization for a later send: the policy at send reservation is authoritative. Missing, deleted and other-account inboxes return `404`.
+         *     `revision` is the saved policy version, starting at `0` for an unconfigured inbox. Missing, deleted and other-account inboxes return `404`.
          *
-         *     This endpoint is read-only. Only the human’s browser session can edit rules in [Account → Sending rules](https://cherami.to/account/sending-rules), not an API key or OAuth mail grant. New inboxes start unrestricted. See [recipient restrictions](https://cherami.to/docs/guides/sending-rules) for setup and scope.
+         *     This endpoint is read-only. Only the human's browser session can edit rules in [Account → Sending rules](https://cherami.to/account/sending-rules), not an API key or OAuth mail grant. New inboxes start unrestricted. See [recipient restrictions](https://cherami.to/docs/guides/sending-rules).
          */
         get: operations["getSendingPolicy"];
         put?: never;
@@ -121,11 +119,11 @@ export interface paths {
          * Inspect receiving rules
          * @description `GET /v1/inboxes/{inbox_id}/receiving-policy` returns `200`.
          *
-         *     `enabled: false` pauses blocking without clearing either saved list. When enabled, any supported parsed From address matching an exact address **or** exact domain rejects the incoming mail. Empty lists block nothing. Local-part case matters; domain case does not. Plus tags and dots stay distinct. Each list has at most 100 normalized, unique entries. Domains are lowercase ASCII, including punycode, with no implicit subdomain matching.
+         *     `enabled: false` pauses blocking without clearing either saved list. When enabled, mail whose visible From address matches an exact address **or** exact domain does not arrive at the inbox, and no copy is kept. Empty lists block nothing. Local-part case matters; domain case does not. Plus tags and dots stay distinct. Each list has at most 100 normalized, unique entries. Domains are lowercase ASCII, including punycode, with no implicit subdomain matching. Messages already received are unaffected by a policy change.
          *
-         *     `revision` is the saved version, starting at `0` for an unconfigured inbox. Missing, deleted and other-account inboxes return `404`. Inspection is read-only and cannot promise the policy for a later receipt.
+         *     `revision` is the saved version, starting at `0` for an unconfigured inbox. Missing, deleted and other-account inboxes return `404`.
          *
-         *     Only the human’s browser session can edit rules in [Account → Receiving rules](https://cherami.to/account/receiving-rules), not an API key or OAuth mail grant. See [receiving rules](https://cherami.to/docs/guides/receiving-rules) for parsing boundaries and rejection behavior. From is sender-controlled, not authenticated identity; existing messages are never hidden or deleted by a policy change.
+         *     This endpoint is read-only. Only the human's browser session can edit rules in [Account → Receiving rules](https://cherami.to/account/receiving-rules), not an API key or OAuth mail grant. From is written by the sender, so this is nuisance filtering, not authentication. See [receiving rules](https://cherami.to/docs/guides/receiving-rules).
          */
         get: operations["getReceivingPolicy"];
         put?: never;
@@ -145,17 +143,17 @@ export interface paths {
         };
         /**
          * List received messages
-         * @description Returns `200` with `messages` and `next_cursor`. Messages default to newest-received first. Combine keyword search, sender, recipient, subject, date and label filters; `order` accepts `newest`, `oldest`, or `relevance`. See [search and filtering](https://cherami.to/docs/guides/search). `limit` is 1–100, default 20. Follow the returned cursor as a URL-encoded `cursor` parameter on the same URL. Use `labels_all` for required tags, optionally combined with `labels_any` and `labels_none`. Keep the same filters when following a cursor. See [pagination](https://cherami.to/docs/api/errors#pagination) and [label filtering](https://cherami.to/docs/guides/labels).
+         * @description Returns `200` with `messages` and `next_cursor`. Messages default to newest-received first. Combine keyword search, sender, recipient, subject, date and label filters; `order` accepts `newest`, `oldest`, or `relevance`. See [search and filtering](https://cherami.to/docs/guides/search). `limit` is 1–100, default 20. Follow the returned cursor as a URL-encoded `cursor` parameter on the same URL, keeping the same filters. Use `labels_all` for required tags, optionally combined with `labels_any` and `labels_none`. See [pagination](https://cherami.to/docs/api/errors#pagination) and [label filtering](https://cherami.to/docs/guides/labels).
          *
-         *     The response schema describes every summary field. `subject` may be null. `thread_id` is null until parsing succeeds. Only ready summaries additionally contain `from`, with a parsed address or null if absent. It is omitted for other states.
+         *     The response schema describes every summary field. `subject` may be null. `thread_id` is null until parsing succeeds. Only ready summaries additionally contain `from`, with a parsed address or null if absent; it is omitted for other states.
          *
-         *     A parsed address is a mailbox (`{"name":"Sender","address":"sender@example.com"}`) or group (`{"name":"Team","group":[{"name":"Sender","address":"sender@example.com"}]}`). Parsed From is sender-supplied, not proof of identity. `envelope_from` is the SMTP sender and may be a bounce address.
+         *     A parsed address is a mailbox (`{"name":"Sender","address":"sender@example.com"}`) or group (`{"name":"Team","group":[{"name":"Sender","address":"sender@example.com"}]}`). `envelope_from` is the SMTP sender and may be a bounce address.
          *
          *     ### Previews
          *
          *     Both received and sent listings include `preview`: null when derived content is not ready or unavailable, otherwise an object:
          *
-         *     `text` is the beginning of the extracted reply when available, otherwise the plain-text body or text derived from HTML. Whitespace is normalized and the excerpt is capped at 300 Unicode code points, preferably at a word boundary. `source` is `reply_text`, `text`, or `html`; `truncated` indicates that the chosen text exceeded the excerpt. A short excerpt may contain the whole chosen text, not necessarily the whole original email. A genuinely empty extracted reply produces `text: ""`, not null. Previews are deterministic excerpts, not summaries or read/unread state.
+         *     `text` is the beginning of the extracted reply when available, otherwise the plain-text body or text derived from HTML. Whitespace is normalized and the excerpt is capped at 300 Unicode code points, preferably at a word boundary. `source` is `reply_text`, `text`, or `html`; `truncated` indicates that the chosen text exceeded the excerpt. A short excerpt may contain the whole chosen text, not necessarily the whole original email. A genuinely empty extracted reply produces `text: ""`, not null.
          */
         get: operations["listMessages"];
         put?: never;
@@ -177,7 +175,7 @@ export interface paths {
          * Count received messages
          * @description `GET /v1/inboxes/{inbox_id}/messages/count` returns `200` with `{"count":3}`.
          *
-         *     The same search and filters as the received list apply, including combined and exclusion filters. This is the current count, including unfinished messages, not an unread count or a snapshot shared with pagination.
+         *     The same search and filters as the received list apply, including combined and exclusion filters. The count is current and includes unfinished messages.
          */
         get: operations["countMessages"];
         put?: never;
@@ -203,7 +201,7 @@ export interface paths {
          *
          *     Each received attachment has `id` (string), `filename` (string or null), `size` (bytes), `mime_type`, `disposition` (string or null), `content_id` (string or null), and `related` (boolean). Use its `id` in the attachment download route.
          *
-         *     Reply extraction preserves original bodies and does not change full-body search. It prefers plain text and derives text from HTML-only mail without rendering or fetching resources. It can miss unusual quoting or omit inline answers; read `text` or `html` when the full context matters. Explicitly marked forwards are retained rather than treated as quoted replies. Extraction failure does not fail ordinary retrieval.
+         *     Reply extraction preserves original bodies and does not change full-body search. It prefers plain text and derives text from HTML-only mail without rendering or fetching resources. It can miss unusual quoting or omit inline answers; read `text` or `html` when the full context matters. Explicitly marked forwards are retained rather than treated as quoted replies.
          *
          *     ### Processing states
          *
@@ -225,20 +223,13 @@ export interface paths {
         head?: never;
         /**
          * Label a received message
-         * @description Use the endpoint for the message copy you want to organize:
-         *
-         *     - `PATCH /v1/messages/{message_id}` for received mail.
-         *     - `PATCH /v1/sent/{message_id}` for a saved outgoing message.
-         *
-         *     Both require bearer authentication and `Content-Type: application/json`. The JSON body is limited to 20 KiB.
+         * @description Adds or removes labels on a received message. Use `Content-Type: application/json` with a body up to 20 KiB.
          *
          *     At least one array must contain a label. Unknown fields are rejected. Duplicate names within an array are ignored. A name cannot appear in both arrays after trimming.
          *
          *     Names must contain 1–128 UTF-8 bytes after trimming surrounding whitespace, with no control characters or malformed Unicode. Case is preserved: `Receipts` and `receipts` are different tags. Labels are a set; do not rely on their order.
          *
-         *     A successful update returns `200` with the resulting labels:
-         *
-         *     Additions and removals apply together without replacing unrelated labels. Repeating the same update does not duplicate labels. Concurrent changes to different labels are preserved; opposite changes to the same label follow write order. Labels are not a work-claiming lock.
+         *     A successful update returns `200` with the message ID and resulting labels. Additions and removals apply together without replacing unrelated labels. Repeating the same update does not duplicate labels.
          *
          *     Invalid changes return `400 invalid_labels`. Missing, deleted, or other-account messages return `404`. Label updates do not require sending or deletion permission and consume no sending allowance.
          */
@@ -276,7 +267,7 @@ export interface paths {
          * Download a received attachment
          * @description Returns `200` with file bytes, `Content-Type: application/octet-stream`, and attachment disposition. Use the ID returned in ready content, not a guessed filename. An unavailable attachment or a message that is not ready returns `404`; missing stored content can return `503`.
          *
-         *     Downloads use `no-store`, `nosniff`, and a sandbox content security policy. Reported filenames and MIME metadata do not establish that files are safe to execute or render.
+         *     Downloads use `no-store`, `nosniff`, and a sandbox content security policy.
          */
         get: operations["downloadAttachment"];
         put?: never;
@@ -300,7 +291,7 @@ export interface paths {
          *
          *     The sender and recipient names are historical snapshots, not current inbox settings. Older full submissions may retain bare-address strings. Stored attachments contain original base64 bytes; source-derived inline files also include Content-ID relationships.
          *
-         *     Missing or other-account IDs return `404`; unavailable content can return `503`. An available sent copy is not evidence of delivery; inspect its status.
+         *     Missing or other-account IDs return `404`; unavailable content can return `503`. Inspect `status`: `accepted` is provider acceptance, not delivery.
          */
         get: operations["getSentMessage"];
         put?: never;
@@ -314,22 +305,11 @@ export interface paths {
         head?: never;
         /**
          * Label a sent copy
-         * @description Use the endpoint for the message copy you want to organize:
+         * @description Adds or removes labels on a saved outgoing message. The [individual label validation rules](https://cherami.to/docs/api/labels/update-message-labels) apply: a JSON body up to 20 KiB, at least one nonempty change array, and no name in both arrays after trimming. Labels are case-sensitive sets; duplicate names within an array are ignored.
          *
-         *     - `PATCH /v1/messages/{message_id}` for received mail.
-         *     - `PATCH /v1/sent/{message_id}` for a saved outgoing message.
+         *     Returns `200` with the message ID and resulting labels. Additions and removals apply together without replacing unrelated labels. Repeating a change does not duplicate tags.
          *
-         *     Both require bearer authentication and `Content-Type: application/json`. The JSON body is limited to 20 KiB.
-         *
-         *     At least one array must contain a label. Unknown fields are rejected. Duplicate names within an array are ignored. A name cannot appear in both arrays after trimming.
-         *
-         *     Names must contain 1–128 UTF-8 bytes after trimming surrounding whitespace, with no control characters or malformed Unicode. Case is preserved: `Receipts` and `receipts` are different tags. Labels are a set; do not rely on their order.
-         *
-         *     A successful update returns `200` with the resulting labels:
-         *
-         *     Additions and removals apply together without replacing unrelated labels. Repeating the same update does not duplicate labels. Concurrent changes to different labels are preserved; opposite changes to the same label follow write order. Labels are not a work-claiming lock.
-         *
-         *     Invalid changes return `400 invalid_labels`. Missing, deleted, or other-account messages return `404`. Label updates do not require sending or deletion permission and consume no sending allowance.
+         *     Invalid changes return `400 invalid_labels`. Missing, deleted or other-account messages return `404`. Updating labels requires neither sending nor deletion permission and consumes no sending allowance.
          */
         patch: operations["updateSentMessageLabels"];
         trace?: never;
@@ -349,13 +329,13 @@ export interface paths {
         head?: never;
         /**
          * Label several received messages
-         * @description Use `PATCH /v1/messages/labels` for received mail or `PATCH /v1/sent/labels` for outgoing copies. Authentication and label-change rules are the same as for individual updates. The body may contain up to 32 KiB of JSON:
+         * @description Changes labels on an explicit set of received messages. The [individual label rules](https://cherami.to/docs/api/labels/update-message-labels) apply; the body may contain up to 32 KiB of JSON.
          *
          *     Supply 1–100 message IDs in `message_ids`; duplicate IDs are updated once. Only `message_ids`, `add_labels`, and `remove_labels` are accepted. The same additions and removals apply to every target. IDs can belong to different inboxes owned by the account, but received and sent copies must use their respective endpoint.
          *
-         *     The request is atomic: if any target is missing, deleted, or inaccessible, the response is a generic `404` and no labels change. Invalid ID arrays return `400 invalid_message_ids`. Success returns `200` with one result per distinct ID in request order:
+         *     The request is atomic: if any target is missing, deleted, or inaccessible, the response is a generic `404` and no labels change. Invalid ID arrays return `400 invalid_message_ids`. Success returns `200` with one result per distinct ID in request order.
          *
-         *     Select explicit IDs before updating; this endpoint does not accept a filter. Larger jobs require separate batches, each atomic on its own. If a response is lost, the whole batch may have applied. Inspect current labels before retrying when other agents may be changing the same tags.
+         *     Select explicit IDs before updating; this endpoint does not accept a filter. Larger jobs require separate batches, each atomic on its own.
          */
         patch: operations["bulkUpdateMessageLabels"];
         trace?: never;
@@ -375,13 +355,13 @@ export interface paths {
         head?: never;
         /**
          * Label several sent copies
-         * @description Use `PATCH /v1/messages/labels` for received mail or `PATCH /v1/sent/labels` for outgoing copies. Authentication and label-change rules are the same as for individual updates. The body may contain up to 32 KiB of JSON:
+         * @description Changes labels on an explicit set of saved outgoing copies. The [individual label rules](https://cherami.to/docs/api/labels/update-message-labels) apply; the body may contain up to 32 KiB of JSON.
          *
          *     Supply 1–100 message IDs in `message_ids`; duplicate IDs are updated once. Only `message_ids`, `add_labels`, and `remove_labels` are accepted. The same additions and removals apply to every target. IDs can belong to different inboxes owned by the account, but received and sent copies must use their respective endpoint.
          *
-         *     The request is atomic: if any target is missing, deleted, or inaccessible, the response is a generic `404` and no labels change. Invalid ID arrays return `400 invalid_message_ids`. Success returns `200` with one result per distinct ID in request order:
+         *     The request is atomic: if any target is missing, deleted, or inaccessible, the response is a generic `404` and no labels change. Invalid ID arrays return `400 invalid_message_ids`. Success returns `200` with one result per distinct ID in request order.
          *
-         *     Select explicit IDs before updating; this endpoint does not accept a filter. Larger jobs require separate batches, each atomic on its own. If a response is lost, the whole batch may have applied. Inspect current labels before retrying when other agents may be changing the same tags.
+         *     Select explicit IDs before updating; this endpoint does not accept a filter. Larger jobs require separate batches, each atomic on its own.
          */
         patch: operations["bulkUpdateSentLabels"];
         trace?: never;
@@ -395,11 +375,11 @@ export interface paths {
         };
         /**
          * Discover labels
-         * @description `GET /v1/inboxes/{inbox_id}/labels` lists names currently used on undeleted received and sent copies in an owned, undeleted inbox. It requires bearer authentication and is available through connected tools as `list_labels`.
+         * @description `GET /v1/inboxes/{inbox_id}/labels` lists names currently used on undeleted received and sent copies in an owned, undeleted inbox.
          *
          *     Optional `prefix` restricts names by a literal, case-sensitive prefix, trimmed using label-name rules. Empty or omitted means all names; supply it at most once. `limit` is 1–100, default 20. Results are ordered by name using case-sensitive binary order, not locale-specific collation. Continue with `cursor` and the same inbox and prefix.
          *
-         *     Counts describe messages, not conversations, and include all processing and sending states. A name disappears when no undeleted message uses it. There is no separate label registry or rename operation. Results and counts can change while you paginate.
+         *     Counts describe messages, not conversations, and include all processing and sending states. A name disappears when no undeleted message uses it. There is no separate label registry or rename operation.
          */
         get: operations["listLabels"];
         put?: never;
@@ -421,61 +401,59 @@ export interface paths {
          * List sent messages
          * @description `GET /v1/inboxes/{inbox_id}/sent?limit=20` returns `200` with `{"messages":[...],"next_cursor":null}`.
          *
-         *     Each entry contains sent metadata plus `preview`, with the same [preview contract](https://cherami.to/docs/api/messages/list-messages) as received mail. All statuses are listed, newest-submitted first by default. Combine [search and filters](https://cherami.to/docs/guides/search) and choose `newest`, `oldest`, or `relevance` ordering. Limit is 1–100, default 20. Pass `next_cursor` as a URL-encoded `cursor` parameter on the same inbox's sent URL. Lists contain bounded previews, not full bodies or attachments. Use `labels_all` for required tags, optionally combined with `labels_any` and `labels_none`; keep the same filters with each cursor. See [label filtering](https://cherami.to/docs/guides/labels).
+         *     Each entry contains sent metadata plus `preview`, with the same [preview contract](https://cherami.to/docs/api/messages/list-messages) as received mail. All statuses are listed, newest-submitted first by default. Combine [search and filters](https://cherami.to/docs/guides/search) and choose `newest`, `oldest`, or `relevance` ordering. Limit is 1–100, default 20. Pass `next_cursor` as a URL-encoded `cursor` parameter on the same inbox's sent URL, keeping the same filters. Lists contain bounded previews, not full bodies or attachments. Use `labels_all` for required tags, optionally combined with `labels_any` and `labels_none`. See [label filtering](https://cherami.to/docs/guides/labels).
          */
         get: operations["listSentMessages"];
         put?: never;
         /**
          * Send a message
-         * @description All routes require bearer authentication. Follow [permitted sending](https://cherami.to/docs/guides/safety#permitted-sending).
+         * @description Follow [permitted sending](https://cherami.to/docs/guides/safety#permitted-sending).
          *
-         *     Inspect the inbox’s [sending rules](https://cherami.to/docs/api/inboxes/get-sending-policy) before preparing a message. All send, reply, reply-all and forward paths enforce every To/Cc/Bcc destination. A new blocked attempt returns `403 recipient_not_allowed` without submission or quota use. An existing keyed attempt remains replayable after a policy edit, without resubmission.
+         *     Inspect the inbox's [sending rules](https://cherami.to/docs/api/inboxes/get-sending-policy) before preparing a message. All send, reply, reply-all and forward paths enforce every To/Cc/Bcc destination. A blocked attempt returns `403 recipient_not_allowed` without submission or quota use.
          *
-         *     For saved preparation and later submission, use the [draft API](https://cherami.to/docs/api/drafts). Draft sending uses the outcomes below, but the draft ID itself prevents another submission without expiry.
+         *     For saved preparation and later submission, use the [draft API](https://cherami.to/docs/api/drafts). Draft sending uses the outcomes below, and the draft ID itself prevents a second submission.
          *
          *     ### Request fields
          *
-         *     Recipient inputs are named mailbox objects, never bare strings or assembled header syntax. Names do not change delivery, verify identity or personalize the body. Recipient clients may display their own contact names.
+         *     Recipient inputs are named mailbox objects, never bare strings or assembled header syntax. Names are display metadata; addresses determine delivery.
          *
-         *     The owned inbox supplies From and its configured [sender name](https://cherami.to/docs/api/inboxes/update-inbox). Bcc addresses and names remain in the sender’s private saved copy but are not exposed in delivered recipient headers.
+         *     The owned inbox supplies From and its configured [sender name](https://cherami.to/docs/api/inboxes/update-inbox). Bcc addresses and names remain in the sender's private saved copy and are not exposed in delivered recipient headers.
          *
          *     At most 50 combined To/Cc/Bcc entries are accepted. Unknown top-level and attachment fields are rejected. You cannot override From or supply arbitrary headers, remote attachment URLs, inline attachments, or raw MIME.
          *
-         *     JSON is limited to 8 MiB. The total email must fit the provider's 5 MiB limit, including generated MIME and attachments. Local size checks do not guarantee that generated MIME will fit.
+         *     JSON is limited to 8 MiB. The total email must fit the provider's 5 MiB limit, including generated MIME and attachments; a message that passes local checks can still be rejected by the provider for size.
          *
-         *     Cherami appends “Sent via Cherami” to plain text and supplied HTML, after your body including quoted history. Do not add it yourself. Returned sent bodies include the attribution.
+         *     Cherami appends "Sent via Cherami" to plain text and supplied HTML, after your body including quoted history. Do not add it yourself. Returned sent bodies include the attribution.
          *
          *     ### Reply targets
          *
          *     `in_reply_to` is a resource ID, not an RFC Message-ID or thread ID. Received parents must be ready; sent parents must be accepted. Both need a usable Message-ID and must belong to the sending inbox. Cherami sets `In-Reply-To` and accumulated `References`, shortening long ancestry as needed.
          *
-         *     On this explicit-send endpoint, supply recipients and subject yourself. For derived recipients and subject, use [reply](https://cherami.to/docs/api/sending/reply-message) or [reply-all](https://cherami.to/docs/api/sending/reply-all-message). There is no implicit latest-message selection. Unready, unaccepted, or headerless targets return `409`; missing, deleted, other-account, or other-inbox targets return `404`.
+         *     On this explicit-send endpoint, supply recipients and subject yourself. For derived recipients and subject, use [reply](https://cherami.to/docs/api/sending/reply-message) or [reply-all](https://cherami.to/docs/api/sending/reply-all-message). Unready, unaccepted, or headerless targets return `409`; missing, deleted, other-account, or other-inbox targets return `404`.
          *
          *     ### Response and outcomes
          *
          *     A created sent resource returns `201` and `Location: /v1/sent/{id}`.
          *
-         *     Inspect `message.status`, not just HTTP status: `accepted` means provider acceptance, not delivery; `rejected` means explicit pre-acceptance rejection; `unknown` means acceptance could not be confirmed. Accepted and unknown attempts retain their sending charge. A retry recovers the reserved attempt without resubmitting it.
+         *     Inspect `message.status`, not just HTTP status: `accepted` means provider acceptance, not delivery; `rejected` means explicit pre-acceptance rejection; `unknown` means acceptance could not be confirmed. Accepted and unknown attempts retain their sending charge. Cherami does not track delivery or bounces.
          *
          *     `provider_message_id`, `error_code`, `thread_id`, and `in_reply_to` can be null. `in_reply_to` identifies the Cherami parent resource when available.
          *
-         *     When `outcome_persisted` is false, the response reports a known provider outcome that could not be saved. Later reads may still say `unknown`; do not resend because of that mismatch. There is no automatic provider-submission retry or delivery/bounce tracking.
+         *     When `outcome_persisted` is false, the response reports a known provider outcome that could not be saved. Later reads may still say `unknown`; keep the outcome returned here and do not resend because of the mismatch.
          *
-         *     If a response is lost or an infrastructure error reports uncertainty, follow the same-key recovery contract below. Without a key, inspect sent messages before considering another send. Repeating an unkeyed POST can send a duplicate. An absent match in a short list alone is not proof that retrying is safe.
+         *     If a response is lost or an infrastructure error reports uncertainty, follow the same-key recovery contract below. Without a key, inspect sent messages before considering another send: repeating an unkeyed POST can send a duplicate.
          *
-         *     Provider errors such as `E_RECIPIENT_SUPPRESSED`, `E_RATE_LIMIT_EXCEEDED`, or `E_DAILY_LIMIT_EXCEEDED` are reported as rejected sent outcomes, not necessarily HTTP errors. A suppressed recipient rejects the whole submission. Check the actual response rather than inferring success from `201`.
+         *     Provider errors such as `E_RECIPIENT_SUPPRESSED`, `E_RATE_LIMIT_EXCEEDED`, or `E_DAILY_LIMIT_EXCEEDED` are reported as rejected sent outcomes, not HTTP errors. A suppressed recipient rejects the whole submission.
          *
          *     ### Retry a send with an idempotency key
          *
-         *     Keys are scoped to the authenticated account across HTTP and MCP, not to a connection or inbox. Protection lasts **24 hours from the first reserved attempt**, without renewal on retries. Keyed results include `replayed` and `idempotency_expires_at` (ISO timestamp). A new attempt returns `201` with `replayed: false`; a matching retry returns `200` with `replayed: true`, the original `message.id` and its current saved outcome. Both include `Location`. A replay adds no submission or quota charge.
+         *     Keys are scoped to the authenticated account across HTTP and MCP, not to a connection or inbox. Protection lasts **24 hours from the first reserved attempt**, without renewal on retries. Keyed results include `replayed` and `idempotency_expires_at`. A new attempt returns `201` with `replayed: false`; a matching retry returns `200` with `replayed: true`, the original `message.id` and its current saved outcome. Both include `Location`. A replay adds no submission or quota charge.
          *
-         *     Use the same key, inbox and message fields for a retry. JSON property order does not matter; omitted and empty optional recipient/attachment arrays are equivalent. Recipient addresses, names and ordering, attachment ordering, body text, HTML, subject and reply target do matter. Address spelling is retained; changing its case changes the request fingerprint. Display names are trimmed, with omitted and blank names equivalent. Changes to the inbox’s configured sender name do not change a replay: the original submission retains the identity used at that time. Initial labels also matter, but their order and duplicates do not; omitted and empty label arrays are equivalent. Later label edits do not change the original retry input, and a replay does not reapply initial labels. Reusing an active key for different input returns `409 idempotency_conflict` without sending. Deleting the sent copy does not free its active key: a matching retry returns `409 idempotency_result_unavailable`. Ordinary access and inbox-ownership checks still apply.
+         *     Use the same key, inbox and message fields for a retry. JSON property order does not matter; omitted and empty optional recipient, attachment and label arrays are equivalent, and label order and duplicates are ignored. Recipient addresses (including case), names, ordering, attachment ordering, body text, HTML, subject, reply target and initial labels do matter. Changes to the inbox's sender name or later label edits do not change a replay. Reusing an active key for different input returns `409 idempotency_conflict` without sending. Deleting the sent copy does not free its key: a matching retry returns `409 idempotency_result_unavailable`.
          *
-         *     The first request may still be running when a retry returns `unknown`. It may also have stopped before submitting or lost the provider's response. Cherami never resumes that reserved attempt on a retry. This prevents a second application submission but may leave an email unsent; it does not guarantee delivery or resolve uncertainty. Use `GET /v1/sent/{message_id}` to inspect it later. `outcome_persisted: true` on a replay describes the saved state being returned, not proof that it captures the provider's final outcome.
+         *     A retry recovers the reserved attempt; Cherami never resumes or repeats provider submission on a retry. This prevents a duplicate but can leave an email unsent when the first attempt stopped before submitting. Read `GET /v1/sent/{message_id}` for the saved outcome.
          *
-         *     Validation, authorization and quota failures before reservation do not consume the key. An uncertain infrastructure failure may have reserved it, so reuse the original key and unchanged payload to recover. Never generate a replacement key to bypass uncertainty. After expiry, the same key can create a new send: **do not retry an uncertain email after the window**. If the initial response was lost, measure the window conservatively from your first request time. A deliberately new email needs a new key.
-         *
-         *     Requests without a key retain their existing behavior: every POST can create a separate send.
+         *     Validation, authorization and quota failures do not consume the key. After an uncertain infrastructure failure, reuse the original key and unchanged payload. Never generate a replacement key to bypass uncertainty. After expiry the same key can create a new send, so **do not retry an uncertain email after the window**; measure it conservatively from your first request time. A deliberately new email needs a new key. Requests without a key can each create a separate send.
          */
         post: operations["sendMessage"];
         delete?: never;
@@ -495,21 +473,19 @@ export interface paths {
         put?: never;
         /**
          * Reply to a message
-         * @description Creates an ordinary sent message with the [send outcomes and recovery contract](https://cherami.to/docs/api/sending/send-message). HTTP success can report rejected or unknown; accepted means provider acceptance, not delivery.
+         * @description Creates an ordinary sent message with the [send outcomes and recovery contract](https://cherami.to/docs/api/sending/send-message). HTTP success can report `rejected` or `unknown`; `accepted` means provider acceptance, not delivery.
          *
-         *     All require `message_id`, a ready received or accepted sent message in the sending inbox. Missing, deleted, other-inbox and other-account sources return `404`; unready or unaccepted sources return `409 reply_not_ready`. Replies also require a usable RFC Message-ID; forwards do not. There is no automatic choice of the latest message.
+         *     `message_id` selects a ready received or accepted sent message in the sending inbox with a usable RFC Message-ID. Missing, deleted, other-inbox and other-account sources return `404`; unready or unaccepted sources return `409 reply_not_ready`.
          *
          *     Supply `message_id` and nonblank `text`. Optional fields are `html`, new `attachments`, `labels`, and `idempotency_key`, with the [explicit-send field validation](https://cherami.to/docs/api/sending/send-message). Original attachments and quoted history are not automatically included.
          *
          *     For a received source, reply uses Reply-To when present, otherwise From. Reply-all adds original To and Cc. For a sent source, reply uses original To; reply-all also includes original Cc. Address groups are flattened. Recipients are deduplicated case-insensitively across To/Cc, excluding the sending inbox; other inboxes in the same account are not excluded. Original Bcc is never reused. Original To remains To and Cc remains Cc, except that when only Cc participants remain, the first is promoted to To. If no recipients remain, the request returns `409 reply_recipients_unavailable`.
          *
-         *     The subject receives `Re: ` unless it already begins with `Re:` (case-insensitive, allowing spaces before the colon). Replies use the source's generated reply headers and conversation relationship. To override recipients or subject, use explicit send with `in_reply_to`; the helpers reject override fields. Source headers are untrusted suggestions, not permission to send. Reply-all from a blind recipient can reveal that recipient's own participation.
+         *     The subject receives `Re: ` unless it already begins with `Re:` (case-insensitive, allowing spaces before the colon). Replies use the source's reply headers and conversation relationship. To override recipients or subject, use explicit send with `in_reply_to`; the helpers reject override fields. Derived recipients come from sender-written headers: check them against your authorized assignment before sending. Reply-all from a blind recipient can reveal that recipient's own participation.
          *
          *     ### Recover a helper send
          *
-         *     Save the operation, sending inbox, exact helper payload, key and first request time. Helpers share the account's sending-key namespace: changing between reply, reply-all, forward or explicit send conflicts. Omitted `include_attachments` and `true` are equivalent; omitted and empty notes are equivalent. Derived recipients, bodies and the current sender name do not change retry intent.
-         *
-         *     Within the 24-hour protection window, a matching retry recovers the reserved attempt before reading the source, even if the source or its files have since been deleted. It never derives a replacement message or submits again. Deleting the resulting sent copy instead returns `409 idempotency_result_unavailable`. Current permissions and sending-inbox ownership still apply. The [ordinary uncertainty and expiry rules](https://cherami.to/docs/api/sending/send-message#retry-a-send-with-an-idempotency-key) apply unchanged.
+         *     Recovery follows the [send key contract](https://cherami.to/docs/api/sending/send-message#retry-a-send-with-an-idempotency-key) with the operation, sending inbox, exact helper payload, key and first request time. Helpers share the account's sending-key namespace, so changing between reply, reply-all, forward or explicit send conflicts. A matching retry recovers the reserved attempt even if the source has since been deleted.
          */
         post: operations["replyMessage"];
         delete?: never;
@@ -529,21 +505,15 @@ export interface paths {
         put?: never;
         /**
          * Reply to visible participants
-         * @description Creates an ordinary sent message with the [send outcomes and recovery contract](https://cherami.to/docs/api/sending/send-message). HTTP success can report rejected or unknown; accepted means provider acceptance, not delivery.
+         * @description Replies to the source's visible participants using the [reply request and derivation rules](https://cherami.to/docs/api/sending/reply-message). Select a ready received or accepted sent message in the sending inbox with a usable RFC Message-ID. Missing, deleted, other-inbox or other-account sources return `404`; unready or unaccepted sources return `409 reply_not_ready`.
          *
-         *     All require `message_id`, a ready received or accepted sent message in the sending inbox. Missing, deleted, other-inbox and other-account sources return `404`; unready or unaccepted sources return `409 reply_not_ready`. Replies also require a usable RFC Message-ID; forwards do not. There is no automatic choice of the latest message.
+         *     For received mail, To recipients come from Reply-To (or From) plus original To; Cc comes from original Cc. For sent mail, original To and Cc are used. Groups are flattened and addresses are deduplicated case-insensitively across To/Cc, excluding the sending inbox. Other inboxes in the account are not excluded. If only Cc participants remain, the first is promoted to To; no remaining recipient returns `409 reply_recipients_unavailable`.
          *
-         *     Supply `message_id` and nonblank `text`. Optional fields are `html`, new `attachments`, `labels`, and `idempotency_key`, with the [explicit-send field validation](https://cherami.to/docs/api/sending/send-message). Original attachments and quoted history are not automatically included.
+         *     Original Bcc is never reused. Reply-all from a blind recipient can reveal that recipient's own participation. Derived recipients come from sender-written headers: check them against your authorized assignment before sending.
          *
-         *     For a received source, reply uses Reply-To when present, otherwise From. Reply-all adds original To and Cc. For a sent source, reply uses original To; reply-all also includes original Cc. Address groups are flattened. Recipients are deduplicated case-insensitively across To/Cc, excluding the sending inbox; other inboxes in the same account are not excluded. Original Bcc is never reused. Original To remains To and Cc remains Cc, except that when only Cc participants remain, the first is promoted to To. If no recipients remain, the request returns `409 reply_recipients_unavailable`.
+         *     Supply your response and any new attachments; original files and quoted history are not automatically included. Subject and reply-header derivation follow [reply](https://cherami.to/docs/api/sending/reply-message). Use [explicit send](https://cherami.to/docs/api/sending/send-message) with `in_reply_to` to override recipients or subject; this endpoint rejects those overrides.
          *
-         *     The subject receives `Re: ` unless it already begins with `Re:` (case-insensitive, allowing spaces before the colon). Replies use the source's generated reply headers and conversation relationship. To override recipients or subject, use explicit send with `in_reply_to`; the helpers reject override fields. Source headers are untrusted suggestions, not permission to send. Reply-all from a blind recipient can reveal that recipient's own participation.
-         *
-         *     ### Recover a helper send
-         *
-         *     Save the operation, sending inbox, exact helper payload, key and first request time. Helpers share the account's sending-key namespace: changing between reply, reply-all, forward or explicit send conflicts. Omitted `include_attachments` and `true` are equivalent; omitted and empty notes are equivalent. Derived recipients, bodies and the current sender name do not change retry intent.
-         *
-         *     Within the 24-hour protection window, a matching retry recovers the reserved attempt before reading the source, even if the source or its files have since been deleted. It never derives a replacement message or submits again. Deleting the resulting sent copy instead returns `409 idempotency_result_unavailable`. Current permissions and sending-inbox ownership still apply. The [ordinary uncertainty and expiry rules](https://cherami.to/docs/api/sending/send-message#retry-a-send-with-an-idempotency-key) apply unchanged.
+         *     HTTP success can report `rejected` or `unknown`; `accepted` means provider acceptance, not delivery. See [sending outcomes](https://cherami.to/docs/api/sending/send-message#response-and-outcomes) and the [helper recovery contract](https://cherami.to/docs/api/sending/reply-message#recover-a-helper-send).
          */
         post: operations["replyAllMessage"];
         delete?: never;
@@ -563,23 +533,19 @@ export interface paths {
         put?: never;
         /**
          * Forward a message
-         * @description Creates an ordinary sent message with the [send outcomes and recovery contract](https://cherami.to/docs/api/sending/send-message). HTTP success can report rejected or unknown; accepted means provider acceptance, not delivery.
+         * @description Creates an ordinary sent message with the [send outcomes and recovery contract](https://cherami.to/docs/api/sending/send-message). HTTP success can report `rejected` or `unknown`; `accepted` means provider acceptance, not delivery.
          *
-         *     All require `message_id`, a ready received or accepted sent message in the sending inbox. Missing, deleted, other-inbox and other-account sources return `404`; unready or unaccepted sources return `409 reply_not_ready`. Replies also require a usable RFC Message-ID; forwards do not. There is no automatic choice of the latest message.
+         *     `message_id` selects a ready received or accepted sent message in the sending inbox. Missing, deleted, other-inbox and other-account sources return `404`; unready or unaccepted sources return `409 reply_not_ready`. A forward does not require an RFC Message-ID.
          *
          *     Supply `message_id` and nonempty `to`. Optional fields are `cc`, `bcc`, plain-text `note`, boolean `include_attachments` (default `true`), `labels`, and `idempotency_key`. Recipient, label and size limits are the same as explicit send. Forward recipients are explicit and are not automatically deduplicated.
          *
-         *     The subject receives `Fwd: ` unless it already starts with `Fw:` or `Fwd:`. The note precedes a forwarded header block containing From, available Date, Subject, To and Cc, never Bcc. Original text and HTML are retained, including quoted history and earlier attribution. HTML-only originals get a non-rendered plain-text alternative. A forward has no reply parent or inherited reply headers and starts a new Cherami conversation.
+         *     The subject receives `Fwd: ` unless it already starts with `Fw:` or `Fwd:`. The note precedes a forwarded header block containing From, available Date, Subject, To and Cc, never Bcc. Original text and HTML are forwarded as stored, including quoted history and earlier attribution; excluding Bcc from the generated headers does not redact anything written in the original body. HTML-only originals get a non-rendered plain-text alternative. A forward has no reply parent and starts a new Cherami conversation.
          *
-         *     Attachments are included by default with their original bytes; embedded images retain their Content-ID relationships. Unsafe or missing filenames get safe transport names. Unusable MIME types become `application/octet-stream`. Setting `include_attachments: false` excludes all original files, including embedded images, so images referenced by the HTML may be unavailable. No attachment is silently removed to fit a limit. Missing expected content returns `503 content_unavailable`; oversized forwards return `413 message_too_large`, or a provider rejection if generated MIME exceeds its limit. An unusable original inline Content-ID returns `400 invalid_message`. Retrieve the original later for unavailable content; explicitly exclude attachments or use an explicit send for a deliberately reduced message.
-         *
-         *     Excluding Bcc from generated headers does not redact anything already written in the original body. Review the original content before authorizing disclosure.
+         *     Attachments are included by default with their original bytes; embedded images retain their Content-ID relationships. Unsafe or missing filenames get safe transport names. Unusable MIME types become `application/octet-stream`. Setting `include_attachments: false` excludes all original files, including embedded images, so images referenced by the HTML may be unavailable. No attachment is silently removed to fit a limit: missing expected content returns `503 content_unavailable`, oversized forwards return `413 message_too_large` or a provider size rejection, and an unusable original inline Content-ID returns `400 invalid_message`. Exclude attachments or use an explicit send for a deliberately reduced message.
          *
          *     ### Recover a helper send
          *
-         *     Save the operation, sending inbox, exact helper payload, key and first request time. Helpers share the account's sending-key namespace: changing between reply, reply-all, forward or explicit send conflicts. Omitted `include_attachments` and `true` are equivalent; omitted and empty notes are equivalent. Derived recipients, bodies and the current sender name do not change retry intent.
-         *
-         *     Within the 24-hour protection window, a matching retry recovers the reserved attempt before reading the source, even if the source or its files have since been deleted. It never derives a replacement message or submits again. Deleting the resulting sent copy instead returns `409 idempotency_result_unavailable`. Current permissions and sending-inbox ownership still apply. The [ordinary uncertainty and expiry rules](https://cherami.to/docs/api/sending/send-message#retry-a-send-with-an-idempotency-key) apply unchanged.
+         *     Recovery follows the [helper recovery contract](https://cherami.to/docs/api/sending/reply-message#recover-a-helper-send). Omitted `include_attachments` and `true` are equivalent; omitted and empty notes are equivalent.
          */
         post: operations["forwardMessage"];
         delete?: never;
@@ -601,11 +567,11 @@ export interface paths {
          *
          *     Every To/Cc/Bcc entry costs one, including repeats. All inboxes share this allowance. Accepted and unknown submissions count; rejected submissions do not when the outcome is saved. Later bounces and message or inbox deletion do not refund charges.
          *
-         *     Sending with insufficient capacity returns `429` with `error.code: "outbound_limit_reached"`, an actionable `error.message`, `quota` containing the allowance fields, and the capacity details in the response schema.
+         *     Sending with insufficient capacity returns `429` with `error.code: "outbound_limit_reached"`, an actionable `error.message`, `quota` containing the allowance fields, and the capacity details in the response schema. Nothing is submitted.
          *
-         *     `Retry-After` is supplied from `sufficient_capacity_at`, not the first charge expiry. No `Retry-After` is supplied when the message exceeds the entire account allowance: waiting cannot fix that. A concurrent release can make the returned snapshot already sufficient even though the earlier check blocked the request. Neither an estimate nor available Cherami capacity guarantees provider acceptance.
+         *     `Retry-After` is supplied from `sufficient_capacity_at`, not the first charge expiry. No `Retry-After` is supplied when the message exceeds the entire account allowance: waiting cannot fix that.
          *
-         *     A quota-blocked send does not submit a message. It does not override recovery rules for an earlier uncertain attempt. Receiving, reading, organizing mail, saving drafts and feedback remain available when sending allowance runs out. Request inbox or sending increases through [feedback](https://cherami.to/docs/api/feedback) or hello@cherami.to; requests are reviewed manually. [Allowance policy](https://cherami.to/pricing).
+         *     Receiving, reading, organizing mail, saving drafts and feedback remain available when sending allowance runs out. Request inbox or sending increases through [feedback](https://cherami.to/docs/api/feedback) or hello@cherami.to; requests are reviewed manually. [Allowance policy](https://cherami.to/pricing).
          */
         get: operations["getOutboundQuota"];
         put?: never;
@@ -625,7 +591,7 @@ export interface paths {
         };
         /**
          * List drafts
-         * @description Returns `200` with `{"drafts":[...],"next_cursor":null}`. Entries contain draft metadata without creation-key fields. `state` is `draft` (default), `submitted` or `all`. Results are newest-created first. `limit` is 1–100, default 20; use the returned opaque `cursor` with the same inbox and state. This is a live listing, not a snapshot. Drafts do not appear in received/sent mail search or conversations before submission.
+         * @description Returns `200` with `{"drafts":[...],"next_cursor":null}`. Entries contain draft metadata without creation-key fields. `state` is `draft` (default), `submitted` or `all`. Results are newest-created first. `limit` is 1–100, default 20; use the returned opaque `cursor` with the same inbox and state. Drafts do not appear in received/sent mail search or conversations before submission.
          *
          *     Unsupported or repeated query parameters and malformed or mismatched cursors return `400 invalid_draft`; an invalid limit returns `400 invalid_limit`.
          */
@@ -633,7 +599,7 @@ export interface paths {
         put?: never;
         /**
          * Create a draft
-         * @description All routes require bearer authentication and account ownership. Drafts belong to one inbox. Saving or editing consumes no sending allowance and does not require sending permission. Sending requires current permission, recipient-policy approval and available allowance; deletion requires deletion permission.
+         * @description Drafts belong to one owned inbox. Saving or editing consumes no sending allowance and does not require sending permission. Sending requires current permission, recipient-policy approval and available allowance; deletion requires deletion permission.
          *
          *     The body can be `{}` for an empty draft. Supply any of `to`, `cc`, `bcc`, `subject`, `text`, `html`, `attachments`, `in_reply_to` and `labels`, using the [sending field formats and limits](https://cherami.to/docs/api/sending/send-message). Recipients, subject and text may be missing or empty until sending. Unknown fields are rejected. Creation and edit JSON may be up to 8 MiB; saved content uses the same 5 MiB local bound, 50 recipients and 32 attachments as outgoing mail. Sending also checks current limits, including the provider's generated MIME limit.
          *
@@ -641,9 +607,7 @@ export interface paths {
          *
          *     Optional `idempotency_key` protects creation. It accepts 1–128 ASCII letters, digits, hyphens or underscores. Keep it with the original payload and first request time; follow the creation-recovery guidance on this page.
          *
-         *     New creation returns `201`, `Location: /v1/drafts/{id}` and metadata.
-         *
-         *     The `replayed` and `idempotency_expires_at` fields appear only for keyed creation. Creation returns metadata, not the full body; retrieve the draft to inspect saved content.
+         *     New creation returns `201`, `Location: /v1/drafts/{id}` and metadata. The `replayed` and `idempotency_expires_at` fields appear only for keyed creation. Creation returns metadata, not the full body; retrieve the draft to inspect saved content.
          *
          *     ### Prepare a reply or forward
          *
@@ -655,17 +619,15 @@ export interface paths {
          *
          *     For forwards, `text` on creation is the introductory note. Supply recipients explicitly, or add them later. The saved text and HTML contain the full forward. `source.include_attachments` defaults to true and is valid only for forwards; false excludes all original files, including embedded images. Creation with a forward source cannot also supply `attachments`; edit afterward to replace the saved file list. Original bytes and usable inline Content-ID relationships are retained. Missing or oversized included files fail rather than being silently omitted. Forwarding does not redact private information already in the body.
          *
-         *     Preparation happens once, before the draft is returned. Sending does not regenerate recipients, forward content or attachments from the source. A prepared forward remains usable if its source is subsequently deleted. A source is a preparation instruction on creation, not an editable field.
+         *     Preparation happens once, at creation. Sending does not regenerate recipients, forward content or attachments from the source, and a prepared forward remains usable if its source is later deleted.
          *
          *     ### Recover creation
          *
-         *     Creation keys are account-scoped across HTTP and MCP, in a namespace separate from inbox creation and sending. Protection lasts **24 hours from creation**, without renewal. A matching retry returns `200`, `replayed: true` and the original draft's **current metadata**, including later edits or submission state. It never reapplies the creation payload. A changed payload returns `409 idempotency_conflict`.
+         *     Creation keys are account-scoped across HTTP and MCP, in a namespace separate from inbox creation and sending. Protection lasts **24 hours from creation**, without renewal. A matching retry returns `200`, `replayed: true` and the original draft's **current metadata**, including later edits or submission state; it never reapplies the creation payload. A changed payload returns `409 idempotency_conflict`. If the draft has been deleted, a matching retry returns `409 idempotency_result_unavailable` without creating a replacement.
          *
          *     The comparison uses normalized creation intent: omitted/empty arrays, trimmed display names, normalized label sets and missing/empty subject or text are equivalent. Content and recipient/file order remain significant. With a source, explicitly supplied fields are also significant because they override derived values; preserve the original payload. Default and explicit true attachment inclusion are equivalent.
          *
-         *     Deleting the draft does not release an active key. A matching retry returns `409 idempotency_result_unavailable`, without creating a replacement. Replay does not require reloading a preparation source that has since disappeared. Access and inbox ownership still apply.
-         *
-         *     If creation cannot be confirmed, retry only with the original key and payload within a conservatively measured 24 hours of the first request. Without a key or after expiry, list drafts with `state=all` and reconcile before creating anything else. Unlike an inbox address, draft content is not unique: blindly recreating can allocate a duplicate. A missing entry in one page does not establish that creation failed.
+         *     If creation cannot be confirmed, retry only with the original key and payload within a conservatively measured 24 hours of the first request. Without a key or after expiry, list drafts with `state=all` and reconcile before creating anything else: draft content is not unique, so recreating blindly can produce a duplicate.
          */
         post: operations["createDraft"];
         delete?: never;
@@ -685,7 +647,7 @@ export interface paths {
          * Retrieve a draft
          * @description Returns metadata plus `from` and `content`. `from` is the inbox's **current** address and optional sender name. `content` contains full `to`, `cc`, `bcc`, `subject`, `text`, `attachments`, optional `html`, `in_reply_to` and nonempty `labels`. Attachment objects include `filename`, `type`, base64 `content`, and `disposition`; source-derived inline files also have `contentId`. Bodies are not extracted or truncated.
          *
-         *     The content is the saved draft, before Cherami's outgoing attribution. Sending uses current sender settings and appends attribution then. For a submitted draft, retrieve `sent_message_id` through the [sent-message endpoint](https://cherami.to/docs/api/sending/get-sent-message) for the actual sender snapshot, attributed content and outcome. Draft retrieval alone is not approval and does not lock the content.
+         *     The content is the saved draft, before Cherami's outgoing attribution. Sending uses current sender settings and appends attribution then. For a submitted draft, retrieve `sent_message_id` through the [sent-message endpoint](https://cherami.to/docs/api/sending/get-sent-message) for the actual sender snapshot, attributed content and outcome.
          */
         get: operations["getDraft"];
         put?: never;
@@ -701,7 +663,7 @@ export interface paths {
          * Edit a draft
          * @description Supply at least one editable creation field, excluding `source` and `idempotency_key`. Only supplied fields change. Recipient arrays, attachments and labels replace their entire respective lists. When revising `text`, revise or clear `html` separately if needed; Cherami does not synchronize the alternatives. New attachment inputs use the ordinary three-field format, not service-generated inline metadata.
          *
-         *     Successful edits return `200` with draft metadata. Concurrent edits to different fields preserve both changes; the last saved value wins for the same field. No version parameter or review lock is supported. Repeated contention can return `409 draft_busy`; retrieve current content before editing again. After an uncertain acknowledgement, also retrieve before repeating an edit that might overwrite another agent's work.
+         *     Successful edits return `200` with draft metadata. For the same field, the last saved value wins; there is no version parameter or review lock. `409 draft_busy` means another change landed first: retrieve current content before editing again.
          *
          *     Submitted drafts return `409 draft_submitted` and cannot be edited or returned to draft.
          */
@@ -721,15 +683,15 @@ export interface paths {
          * Send a draft
          * @description `POST /v1/drafts/{draft_id}/send` with `{}` or `{"idempotency_key":"YOUR_SEND_KEY"}`.
          *
-         *     Sending takes the current saved content, not a previously retrieved copy. The draft freezes as `submitted` when an outgoing attempt is reserved, with `sent_message_id` identifying that attempt. An edit that wins before reservation must be included or cause `409 draft_busy`; a send never silently submits an older saved copy. Concurrent sends cannot reserve multiple submissions for the same draft.
+         *     Sending takes the current saved content, not a previously retrieved copy. The draft freezes as `submitted` when an outgoing attempt is reserved, with `sent_message_id` identifying that attempt. An edit that lands first returns `409 draft_busy`: retrieve the draft and send again.
          *
-         *     Validation, ownership, permission, recipient-policy or quota failures before reservation leave it editable. After reservation it remains submitted for **every** provider outcome, including rejection and uncertainty. There is no automatic retry or return-to-draft operation. A deliberately new attempt requires a new draft; do not create one merely to resolve an unknown outcome.
+         *     Validation, ownership, permission, recipient-policy or quota failures before reservation leave it editable. After reservation it remains submitted for **every** provider outcome, including rejection and uncertainty. There is no return-to-draft operation. A deliberately new attempt requires a new draft; do not create one merely to resolve an unknown outcome.
          *
-         *     The response uses the [ordinary send receipt and outcomes](https://cherami.to/docs/api/sending/send-message): `201` for a new attempt, `200` with `replayed: true` when recovering. `Location` points to `/v1/sent/{sent_message_id}`. Acceptance is not proof of delivery. If `outcome_persisted` is false, retain the stronger immediate outcome even if later reads lag.
+         *     The response uses the [ordinary send receipt and outcomes](https://cherami.to/docs/api/sending/send-message): `201` for a new attempt, `200` with `replayed: true` when recovering. `Location` points to `/v1/sent/{sent_message_id}`. Acceptance is not proof of delivery.
          *
-         *     **The draft ID itself prevents another submission, without expiry.** Repeat the same send request to recover an uncertain attempt, not to restart it. This can preserve a possibly unsent attempt rather than risk a duplicate. Deleting the sent copy does not unlock the draft; recovery then returns `409 draft_result_unavailable` (or `idempotency_result_unavailable` for an active sending key).
+         *     **The draft ID itself prevents another submission, without expiry.** Repeat the same send request to recover an uncertain attempt; it never sends another copy. Deleting the sent copy does not unlock the draft; recovery then returns `409 draft_result_unavailable` (or `idempotency_result_unavailable` for an active sending key).
          *
-         *     Optional sending keys share the ordinary account-scoped sending namespace and 24-hour lifetime. Their intent identifies this draft, not its mutable fields. Changing the draft ID or reusing a key from an ordinary send conflicts. Key expiry does not remove the draft's permanent submitted state. A replay recovered through the draft association need not include `idempotency_expires_at`; it does not allocate or renew a key.
+         *     Optional sending keys share the ordinary account-scoped sending namespace and 24-hour lifetime. Their intent identifies this draft, not its mutable fields. Changing the draft ID or reusing a key from an ordinary send conflicts. Key expiry does not remove the draft's permanent submitted state.
          */
         post: operations["sendDraft"];
         delete?: never;
@@ -747,11 +709,13 @@ export interface paths {
         };
         /**
          * List conversations
-         * @description All operations require bearer authentication. Threads are automatic; no creation request is needed. They contain ready received messages and sent attempts, including rejected and unknown outcomes.
+         * @description Threads are grouped automatically. They contain ready received messages and sent attempts, including rejected and unknown outcomes.
          *
          *     `GET /v1/inboxes/{inbox_id}/threads?limit=20` returns `200`.
          *
-         *     Most recent activity first by default. Accepts the shared [search, filters and ordering](https://cherami.to/docs/guides/search). A conversation matches when one member satisfies every condition. Filtered results additionally include `matching_message_ids` (up to 100, newest first) and `matching_message_count` (total matching members). `subject` is from the earliest surviving message and can be null. Counts include attempts, not just successful correspondence. These are metadata, not AI summaries.
+         *     Most recent activity first by default. Accepts the shared [search, filters and ordering](https://cherami.to/docs/guides/search). A conversation matches when one member satisfies every condition. Filtered results additionally include `matching_message_ids` (up to 100, newest first) and `matching_message_count` (total matching members). `subject` is from the earliest surviving message and can be null. Counts include rejected and unknown attempts.
+         *
+         *     Each message retains its own `labels`; threads have no label set. Filters select conversations without filtering their detail pages. Manual merging is not provided. Reply using a message resource ID, not the thread ID.
          */
         get: operations["listThreads"];
         put?: never;
@@ -779,13 +743,9 @@ export interface paths {
          *
          *     The first page contains the newest messages, **chronological within the page**. The next page contains older messages. Metadata counts describe the conversation, not just the current page.
          *
-         *     Both GET routes accept `limit` 1–100, default 20. Follow `next_cursor` as a URL-encoded `cursor` parameter on the same resource URL. Ordering uses service timestamps, not sender-controlled Date headers.
-         *
-         *     Conversations can update, and pages are not a snapshot. Previously returned thread IDs remain usable while their conversation exists; the returned `id` may differ from the requested one. Continue a pagination sequence on the same requested URL, and refetch recent context when needed.
+         *     Accepts `limit` 1–100, default 20. Follow `next_cursor` as a URL-encoded `cursor` parameter on the same resource URL. Ordering uses service timestamps, not sender-controlled Date headers. Previously returned thread IDs remain usable while their conversation exists; the returned `id` may differ from the requested one.
          *
          *     Pending, processing, and failed received messages have `thread_id: null` and are absent from threads. They remain available through message endpoints. Deleted messages disappear; surviving messages remain grouped. Empty, missing, or other-account conversations return `404`. Invalid limits/cursors return `400`, and unavailable content can return `503`.
-         *
-         *     Each message retains its own `labels`; threads have no label set. Filters select conversations without filtering their detail pages. Manual merging is not provided. Thread membership is not proof of identity or delivery. Reply using a message resource ID, not the thread ID.
          */
         get: operations["getThread"];
         put?: never;
@@ -796,11 +756,9 @@ export interface paths {
          *
          *     Returns the deletion result.
          *
-         *     `id` is the canonical thread ID when members were selected; counts describe those selected messages. They are hidden from retrieval and search together. The inbox and saved drafts remain available. Sent-copy deletion does not cancel an already reserved send or refund its allowance.
+         *     `id` is the canonical thread ID when members were selected; counts describe those selected messages. They are hidden from retrieval and search together. The inbox and saved drafts remain available. Deleting sent copies does not refund their allowance.
          *
          *     Empty, missing or other-account threads return `404`; an account without deletion permission receives `403 operation_not_allowed`.
-         *
-         *     With MCP, use `update_thread_labels` or `delete_thread` with `thread_id`. Their inputs and results match these HTTP operations.
          */
         delete: operations["deleteThread"];
         options?: never;
@@ -813,7 +771,7 @@ export interface paths {
          *
          *     Returns the update result.
          *
-         *     `id` is the canonical thread ID when members were selected. Counts describe updated copies, including those whose labels already matched, excluding any deleted before the update. `add_labels` and `remove_labels` contain the normalized changes, not each message's complete label set.
+         *     `id` is the canonical thread ID when members were selected. Counts describe updated copies, including those whose labels already matched. `add_labels` and `remove_labels` contain the normalized changes, not each message's complete label set.
          *
          *     Invalid changes return `400 invalid_labels`. Empty, missing or other-account threads return `404`.
          */
@@ -858,7 +816,7 @@ export interface components {
                 message: string;
             };
         };
-        /** @description Keyed creation adds both replay fields. Replay returns the inbox's current names, not the initial snapshot. */
+        /** @description Keyed creation adds both replay fields. Replay returns the inbox's current names. */
         CreatedInbox: {
             /** @description Cherami resource ID, distinct from the RFC Message-ID. Use the returned value. */
             id: string;
@@ -916,7 +874,7 @@ export interface components {
             enabled: boolean;
             addresses: string[];
             domains: string[];
-            /** @description Zero when unconfigured. Inspection does not reserve a policy for later mail. */
+            /** @description Saved policy version; zero when unconfigured. */
             revision: number;
         };
         /** @description 1–128 UTF-8 bytes after trimming. Well-formed Unicode without control characters; case-sensitive. */
@@ -1078,7 +1036,7 @@ export interface components {
             reply_text: string | null;
             submission: components["schemas"]["Submission"];
         };
-        /** @description Stored attributed submission, not final signed MIME. Historical recipient/address strings remain strings. Forwarded files may be inline. */
+        /** @description Stored attributed submission. Historical recipient/address strings remain strings. Forwarded files may be inline. */
         Submission: {
             to: (components["schemas"]["Mailbox"] | string)[];
             cc: (components["schemas"]["Mailbox"] | string)[];
@@ -1127,7 +1085,7 @@ export interface components {
             }[];
             next_cursor: string | null;
         };
-        /** @description Inspect message.status even on HTTP 201. accepted is provider acceptance, not delivery. Preserve a known outcome when outcome_persisted is false; later reads may lag. Keyed receipts add replayed and expiry. Draft-association recovery adds replayed without requiring an expiry. */
+        /** @description Inspect message.status even on HTTP 201. accepted is provider acceptance, not delivery. Keep a known outcome when outcome_persisted is false. Keyed receipts add replayed and expiry; draft-association recovery adds replayed without an expiry. */
         SendReceipt: {
             /** @constant */
             limited: false;
@@ -1194,7 +1152,7 @@ export interface components {
             subject: string;
             /** @description Required nonblank plain text. */
             text: string;
-            /** @description HTML alternative. Untrusted content, not sanitized markup. */
+            /** @description HTML alternative, sent as supplied. */
             html?: string;
             /** @description Omitted or null means no attachments; an empty array also clears draft attachments. */
             attachments?: components["schemas"]["AttachmentInput"][] | null;
@@ -1238,7 +1196,7 @@ export interface components {
             message_id: string;
             /** @description Nonblank reply text; history is not automatically quoted. */
             text: string;
-            /** @description HTML alternative. Untrusted content, not sanitized markup. */
+            /** @description HTML alternative, sent as supplied. */
             html?: string;
             /** @description Omitted or null means no attachments; an empty array also clears draft attachments. */
             attachments?: components["schemas"]["AttachmentInput"][] | null;
@@ -1373,7 +1331,7 @@ export interface components {
             labels?: string[];
             attachments: components["schemas"]["StoredAttachment"][];
         };
-        /** @description Only supplied fields change; arrays replace their entire lists. No source, version, review lock or idempotency key. Submitted drafts cannot be edited. */
+        /** @description Only supplied fields change; arrays replace their entire lists. No source or idempotency key. Submitted drafts cannot be edited. */
         UpdateDraft: {
             to?: components["schemas"]["Mailbox"][];
             cc?: components["schemas"]["Mailbox"][];
@@ -1726,7 +1684,7 @@ export interface operations {
              *
              *     `idempotency_conflict`: The key belongs to different input. Recover with the original inbox and payload, not a replacement key.
              *
-             *     `idempotency_result_unavailable`: The key was used but its inbox, draft or sent copy is unavailable. No replacement was created or submitted; do not bypass protection with a new key.
+             *     `idempotency_result_unavailable`: The key was used but its inbox, draft or sent copy has been deleted. Nothing was created or submitted; do not bypass protection with a new key.
              */
             409: {
                 headers: {
@@ -2929,7 +2887,7 @@ export interface operations {
             /**
              * @description `content_unavailable`: Expected stored content is unavailable. Retry the read later.
              *
-             *     `outbound_unavailable`: Outbound operation failed and a send's outcome may be unknown. Recover using the original key and unchanged payload within its window, or inspect sent messages.
+             *     `outbound_unavailable`: The send's outcome is unknown. Recover with the original key and unchanged payload within its window, or inspect sent messages before sending again.
              */
             503: {
                 headers: {
@@ -3559,7 +3517,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `outbound_unavailable`: Outbound operation failed and a send's outcome may be unknown. Recover using the original key and unchanged payload within its window, or inspect sent messages. */
+            /** @description `outbound_unavailable`: The send's outcome is unknown. Recover with the original key and unchanged payload within its window, or inspect sent messages before sending again. */
             503: {
                 headers: {
                     /** @description Support correlation ID, not an idempotency key. */
@@ -3745,7 +3703,7 @@ export interface operations {
              *
              *     `idempotency_conflict`: The key belongs to different input. Recover with the original inbox and payload, not a replacement key.
              *
-             *     `idempotency_result_unavailable`: The key was used but its inbox, draft or sent copy is unavailable. No replacement was created or submitted; do not bypass protection with a new key.
+             *     `idempotency_result_unavailable`: The key was used but its inbox, draft or sent copy has been deleted. Nothing was created or submitted; do not bypass protection with a new key.
              */
             409: {
                 headers: {
@@ -3799,7 +3757,7 @@ export interface operations {
             /**
              * @description `content_unavailable`: Expected stored content is unavailable. Retry the read later.
              *
-             *     `outbound_unavailable`: Outbound operation failed and a send's outcome may be unknown. Recover using the original key and unchanged payload within its window, or inspect sent messages.
+             *     `outbound_unavailable`: The send's outcome is unknown. Recover with the original key and unchanged payload within its window, or inspect sent messages before sending again.
              */
             503: {
                 headers: {
@@ -3980,7 +3938,7 @@ export interface operations {
              *
              *     `idempotency_conflict`: The key belongs to different input. Recover with the original inbox and payload, not a replacement key.
              *
-             *     `idempotency_result_unavailable`: The key was used but its inbox, draft or sent copy is unavailable. No replacement was created or submitted; do not bypass protection with a new key.
+             *     `idempotency_result_unavailable`: The key was used but its inbox, draft or sent copy has been deleted. Nothing was created or submitted; do not bypass protection with a new key.
              *
              *     `reply_recipients_unavailable`: No other visible reply recipients remain after self-exclusion. Use explicit send with human-authorized recipients.
              */
@@ -4036,7 +3994,7 @@ export interface operations {
             /**
              * @description `content_unavailable`: Expected stored content is unavailable. Retry the read later.
              *
-             *     `outbound_unavailable`: Outbound operation failed and a send's outcome may be unknown. Recover using the original key and unchanged payload within its window, or inspect sent messages.
+             *     `outbound_unavailable`: The send's outcome is unknown. Recover with the original key and unchanged payload within its window, or inspect sent messages before sending again.
              */
             503: {
                 headers: {
@@ -4217,7 +4175,7 @@ export interface operations {
              *
              *     `idempotency_conflict`: The key belongs to different input. Recover with the original inbox and payload, not a replacement key.
              *
-             *     `idempotency_result_unavailable`: The key was used but its inbox, draft or sent copy is unavailable. No replacement was created or submitted; do not bypass protection with a new key.
+             *     `idempotency_result_unavailable`: The key was used but its inbox, draft or sent copy has been deleted. Nothing was created or submitted; do not bypass protection with a new key.
              *
              *     `reply_recipients_unavailable`: No other visible reply recipients remain after self-exclusion. Use explicit send with human-authorized recipients.
              */
@@ -4273,7 +4231,7 @@ export interface operations {
             /**
              * @description `content_unavailable`: Expected stored content is unavailable. Retry the read later.
              *
-             *     `outbound_unavailable`: Outbound operation failed and a send's outcome may be unknown. Recover using the original key and unchanged payload within its window, or inspect sent messages.
+             *     `outbound_unavailable`: The send's outcome is unknown. Recover with the original key and unchanged payload within its window, or inspect sent messages before sending again.
              */
             503: {
                 headers: {
@@ -4457,7 +4415,7 @@ export interface operations {
              *
              *     `idempotency_conflict`: The key belongs to different input. Recover with the original inbox and payload, not a replacement key.
              *
-             *     `idempotency_result_unavailable`: The key was used but its inbox, draft or sent copy is unavailable. No replacement was created or submitted; do not bypass protection with a new key.
+             *     `idempotency_result_unavailable`: The key was used but its inbox, draft or sent copy has been deleted. Nothing was created or submitted; do not bypass protection with a new key.
              */
             409: {
                 headers: {
@@ -4511,7 +4469,7 @@ export interface operations {
             /**
              * @description `content_unavailable`: Expected stored content is unavailable. Retry the read later.
              *
-             *     `outbound_unavailable`: Outbound operation failed and a send's outcome may be unknown. Recover using the original key and unchanged payload within its window, or inspect sent messages.
+             *     `outbound_unavailable`: The send's outcome is unknown. Recover with the original key and unchanged payload within its window, or inspect sent messages before sending again.
              */
             503: {
                 headers: {
@@ -4581,7 +4539,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `outbound_unavailable`: Outbound operation failed and a send's outcome may be unknown. Recover using the original key and unchanged payload within its window, or inspect sent messages. */
+            /** @description `outbound_unavailable`: The send's outcome is unknown. Recover with the original key and unchanged payload within its window, or inspect sent messages before sending again. */
             503: {
                 headers: {
                     /** @description Support correlation ID, not an idempotency key. */
@@ -4820,7 +4778,7 @@ export interface operations {
             /**
              * @description `idempotency_conflict`: The key belongs to different input. Recover with the original inbox and payload, not a replacement key.
              *
-             *     `idempotency_result_unavailable`: The key was used but its inbox, draft or sent copy is unavailable. No replacement was created or submitted; do not bypass protection with a new key.
+             *     `idempotency_result_unavailable`: The key was used but its inbox, draft or sent copy has been deleted. Nothing was created or submitted; do not bypass protection with a new key.
              *
              *     `reply_not_ready`: A received reply or forward source must be ready; a sent source must have confirmed provider acceptance.
              *
@@ -5131,7 +5089,7 @@ export interface operations {
                 };
             };
             /**
-             * @description `draft_busy`: An edit/send raced other changes. Retrieve current content before trying again.
+             * @description `draft_busy`: Another change to this draft landed first. Retrieve current content before trying again.
              *
              *     `draft_submitted`: Submitted drafts cannot be edited or returned to draft. Retrieve the linked sent message.
              */
@@ -5343,9 +5301,9 @@ export interface operations {
              *
              *     `idempotency_conflict`: The key belongs to different input. Recover with the original inbox and payload, not a replacement key.
              *
-             *     `idempotency_result_unavailable`: The key was used but its inbox, draft or sent copy is unavailable. No replacement was created or submitted; do not bypass protection with a new key.
+             *     `idempotency_result_unavailable`: The key was used but its inbox, draft or sent copy has been deleted. Nothing was created or submitted; do not bypass protection with a new key.
              *
-             *     `draft_busy`: An edit/send raced other changes. Retrieve current content before trying again.
+             *     `draft_busy`: Another change to this draft landed first. Retrieve current content before trying again.
              *
              *     `draft_result_unavailable`: The draft was already submitted but its sent copy is unavailable. Nothing was resubmitted.
              */
