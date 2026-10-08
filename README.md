@@ -93,7 +93,7 @@ const intent = prepareSend("sendMessage", {
 await writeFile(intentPath, JSON.stringify(intent));
 ```
 
-The record includes the message and its retry key. An application can use its database instead of a file.
+The record includes the message and its retry key.
 
 ### Submit or recover
 

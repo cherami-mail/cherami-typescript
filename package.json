@@ -1,6 +1,6 @@
 {
   "name": "@cherami/sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Official Cherami HTTP client for Node.js: inboxes, correspondence, drafts, attachments and conversations.",
   "type": "module",
   "license": "MIT",
