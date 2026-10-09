@@ -40,6 +40,9 @@ export interface OperationMap {
   getThread: { params: operations["getThread"]["parameters"]["path"] & NonNullable<operations["getThread"]["parameters"]["query"]>; result: JsonSuccess<operations["getThread"]["responses"]> };
   updateThreadLabels: { params: operations["updateThreadLabels"]["parameters"]["path"] & { body: operations["updateThreadLabels"]["requestBody"]["content"]["application/json"] }; result: JsonSuccess<operations["updateThreadLabels"]["responses"]> };
   deleteThread: { params: operations["deleteThread"]["parameters"]["path"]; result: JsonSuccess<operations["deleteThread"]["responses"]> };
+  listTrash: { params: operations["listTrash"]["parameters"]["path"] & NonNullable<operations["listTrash"]["parameters"]["query"]>; result: JsonSuccess<operations["listTrash"]["responses"]> };
+  restoreMessage: { params: operations["restoreMessage"]["parameters"]["path"]; result: JsonSuccess<operations["restoreMessage"]["responses"]> };
+  restoreSentMessage: { params: operations["restoreSentMessage"]["parameters"]["path"]; result: JsonSuccess<operations["restoreSentMessage"]["responses"]> };
 }
 export type Operation = keyof OperationMap;
 export type Params<O extends Operation> = OperationMap[O]["params"];
@@ -570,6 +573,48 @@ export const routes = {
     "successStatuses": [
       202
     ]
+  },
+  "listTrash": {
+    "path": "/v1/inboxes/{inbox_id}/trash",
+    "method": "GET",
+    "pathParams": [
+      "inbox_id"
+    ],
+    "queryParams": [
+      "limit",
+      "cursor"
+    ],
+    "body": false,
+    "binary": false,
+    "successStatuses": [
+      200
+    ]
+  },
+  "restoreMessage": {
+    "path": "/v1/messages/{message_id}/restore",
+    "method": "POST",
+    "pathParams": [
+      "message_id"
+    ],
+    "queryParams": [],
+    "body": false,
+    "binary": false,
+    "successStatuses": [
+      200
+    ]
+  },
+  "restoreSentMessage": {
+    "path": "/v1/sent/{message_id}/restore",
+    "method": "POST",
+    "pathParams": [
+      "message_id"
+    ],
+    "queryParams": [],
+    "body": false,
+    "binary": false,
+    "successStatuses": [
+      200
+    ]
   }
 } as const;
 export class Operations extends Transport {
@@ -688,7 +733,7 @@ export class Operations extends Transport {
     return this.request(routes.replyMessage, params, options);
   }
 
-  /** Reply to visible participants. See the HTTP reference for state and recovery semantics. */
+  /** Reply to all. See the HTTP reference for state and recovery semantics. */
   replyAllMessage(params: Params<"replyAllMessage">, options: RequestOptions = {}): Promise<ApiResponse<Result<"replyAllMessage">>> {
     return this.request(routes.replyAllMessage, params, options);
   }
@@ -751,5 +796,20 @@ export class Operations extends Transport {
   /** Delete a conversation. See the HTTP reference for state and recovery semantics. */
   deleteThread(params: Params<"deleteThread">, options: RequestOptions = {}): Promise<ApiResponse<Result<"deleteThread">>> {
     return this.request(routes.deleteThread, params, options);
+  }
+
+  /** List Trash. See the HTTP reference for state and recovery semantics. */
+  listTrash(params: Params<"listTrash">, options: RequestOptions = {}): Promise<ApiResponse<Result<"listTrash">>> {
+    return this.request(routes.listTrash, params, options);
+  }
+
+  /** Restore a received message. See the HTTP reference for state and recovery semantics. */
+  restoreMessage(params: Params<"restoreMessage">, options: RequestOptions = {}): Promise<ApiResponse<Result<"restoreMessage">>> {
+    return this.request(routes.restoreMessage, params, options);
+  }
+
+  /** Restore a sent copy. See the HTTP reference for state and recovery semantics. */
+  restoreSentMessage(params: Params<"restoreSentMessage">, options: RequestOptions = {}): Promise<ApiResponse<Result<"restoreSentMessage">>> {
+    return this.request(routes.restoreSentMessage, params, options);
   }
 }

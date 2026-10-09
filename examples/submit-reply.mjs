@@ -1,6 +1,6 @@
-// SENDS the already approved, saved intent, or recovers its original attempt.
-// Set CHERAMI_API_KEY and CHERAMI_INTENT_PATH. To recover a lost response, run
-// this again with the same record; do not rerun prepare-reply.mjs.
+// Sends the reply saved at CHERAMI_INTENT_PATH. If it fails with CheramiTransportError,
+// run this again with the same file, not prepare-reply.mjs: the saved retry key returns
+// the original attempt instead of sending twice. Set CHERAMI_API_KEY and CHERAMI_INTENT_PATH.
 import { readFile } from "node:fs/promises";
 import { Cherami, restoreSend } from "@cherami/sdk";
 
@@ -9,5 +9,5 @@ if (!apiKey || !intentPath) throw new Error("Set CHERAMI_API_KEY and CHERAMI_INT
 const client = new Cherami({ apiKey });
 const intent = restoreSend(await readFile(intentPath, "utf8"));
 const { data, status, requestId } = await client.submit(intent);
-// This line is the attempt's receipt. Keep it; a later replay must not replace an earlier outcome.
+// The receipt. If data.outcome_persisted is false, keep it: later reads may not show its outcome.
 console.log(JSON.stringify({ data, status, requestId }));

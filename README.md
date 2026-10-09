@@ -1,8 +1,8 @@
 # Cherami TypeScript SDK
 
-The official TypeScript and JavaScript client for [Cherami](https://cherami.to), email infrastructure for AI agents. Create inboxes for ongoing work, read incoming mail, and send messages from your application.
+The official TypeScript and JavaScript client for [Cherami](https://cherami.to), email infrastructure for AI agents. Create inboxes for your agents, read the mail that arrives and send from their addresses.
 
-For **Node.js 24+**. ESM, TypeScript declarations included, no runtime dependencies. Keep this client on your backend, not in browser code.
+Requires **Node.js 24+**. ESM, with TypeScript declarations and no runtime dependencies.
 
 ## Get started
 
@@ -12,7 +12,7 @@ npm install @cherami/sdk
 bun add @cherami/sdk
 ```
 
-[Connect your account and obtain an API key](https://cherami.to/docs/quickstart), then supply it privately as `CHERAMI_API_KEY` in your backend environment. The key grants access to every inbox on the account.
+[Create an API key](https://cherami.to/docs/quickstart#create-an-api-key) and supply it privately as `CHERAMI_API_KEY`. Then list your inboxes:
 
 ```ts
 import { Cherami } from "@cherami/sdk";
@@ -25,13 +25,13 @@ const { data } = await client.listInboxes();
 console.table(data.inboxes.map(({ id, address }) => ({ id, address })));
 ```
 
-This prints the inboxes available to your application. The examples below reuse `client`. Set `CHERAMI_INBOX_ID` to the ID of the inbox you want to work with.
+This prints every inbox on your account. Set `CHERAMI_INBOX_ID` to the one you want to work with; the examples below use it and reuse `client`. If the list is empty, [create an inbox](https://cherami.to/docs/api/inboxes/create-inbox) with `createInbox`.
+
+Every method returns `{ data, status, headers, requestId }`. Parameters use the HTTP field names: path and query fields go at the top level, and the JSON body goes in `body`. Timestamps are strings.
 
 ## Read mail
 
-For repeated checks, see [webhooks and polling](https://cherami.to/docs/troubleshooting#does-cherami-provide-webhooks) and the [receiving guide](https://cherami.to/docs/guides/receiving). They cover bounded runs, pagination, unfinished content and handled-message tracking.
-
-Fetch recent messages and read their text once processing is complete.
+List recent messages, then fetch each one. Its content is available once `processing_status` is `ready`:
 
 ```ts
 const inboxId = process.env.CHERAMI_INBOX_ID;
@@ -50,7 +50,7 @@ for (const message of page.messages) {
 }
 ```
 
-For larger inboxes, `iterate` fetches pages as needed and yields individual messages:
+To read past the first page, `iterate` takes the same parameters as `listMessages`, here a search that skips anything labeled `handled`, and fetches pages as you consume messages:
 
 ```ts
 for await (const message of client.iterate("listMessages", {
@@ -62,24 +62,18 @@ for await (const message of client.iterate("listMessages", {
 }
 ```
 
-Use `pages` instead when you need page responses and their `next_cursor` for resuming later. Both helpers preserve server ordering and stop fetching when you stop iterating.
+`pages` yields whole responses instead, with the `next_cursor` you need to resume later.
+
+To act on mail as it arrives, [add a webhook](https://cherami.to/docs/guides/webhooks), or poll as [Receive and poll for mail](https://cherami.to/docs/guides/receiving) describes.
 
 ## Send mail
 
-The SDK makes no automatic retries. Its send helper lets you save an intended message before submission and reuse that record if the response is lost, so recovery reuses the original retry key instead of sending twice.
-
-The following examples reuse `client` and `inboxId` above. Set `CHERAMI_INTENT_PATH` to where you will save the send record, one file per intended email.
+Prepare each email once and save the record before you submit it.
 
 ### Prepare and save
 
-Run this once, after confirming the recipient and content. Replace the example recipient before sending.
-
 ```ts
-import { writeFile } from "node:fs/promises";
 import { prepareSend } from "@cherami/sdk";
-
-const intentPath = process.env.CHERAMI_INTENT_PATH;
-if (!intentPath) throw new Error("Set CHERAMI_INTENT_PATH.");
 
 const intent = prepareSend("sendMessage", {
   inbox_id: inboxId,
@@ -89,47 +83,42 @@ const intent = prepareSend("sendMessage", {
     text: "The change is ready for review.",
   },
 });
-
-await writeFile(intentPath, JSON.stringify(intent));
+const record = JSON.stringify(intent);
+// Save `record` here.
 ```
-
-The record includes the message and its retry key.
 
 ### Submit or recover
 
-For both the initial submission and recovery, load the saved record rather than preparing again:
+Submit the saved record:
 
 ```ts
-import { readFile } from "node:fs/promises";
 import { restoreSend } from "@cherami/sdk";
 
-const intentPath = process.env.CHERAMI_INTENT_PATH;
-if (!intentPath) throw new Error("Set CHERAMI_INTENT_PATH.");
-
-const saved = restoreSend(await readFile(intentPath, "utf8"));
-const { data: receipt, status, requestId } = await client.submit(saved);
+const saved = restoreSend(record); // the record you saved
+const { data: receipt } = await client.submit(saved);
 console.log(receipt.message.id, receipt.message.status, receipt.outcome_persisted);
-// Keep { data: receipt, status, requestId } as this attempt's receipt.
 ```
 
-Read `receipt.message.status` to interpret the result:
+If `submit` throws `CheramiTransportError`, the response was lost: submit the same saved record again. It carries the original retry key, so we return the first attempt instead of sending a second email.
 
-- `accepted`: the email provider accepted the message. This is not delivery confirmation.
-- `rejected`: the provider explicitly rejected the message.
-- `unknown`: submission may or may not have succeeded. Recover using the original record.
+`receipt.message.status` tells you what happened:
 
-These outcomes are returned as data, not exceptions. Keep every receipt: if `outcome_persisted` is false, it may contain an outcome that later reads cannot show.
+- `accepted`: the email provider accepted the message. This does not confirm delivery.
+- `rejected`: the provider refused it, and `receipt.message.error_code` says why. Fix that and prepare a new record to send it again.
+- `unknown`: we couldn't confirm whether it went out. Preparing it again could send a duplicate.
 
-The helper permits recovery for **23 hours and 59 minutes from preparation**. After expiry, inspect sent mail instead.
+All three arrive as data, not exceptions. If `outcome_persisted` is false, keep this receipt: later reads may not show its outcome.
 
-The same helper supports `replyMessage`, `replyAllMessage`, and `forwardMessage`. If your application already manages retry keys and recovery deadlines, you can use those methods or `sendMessage` directly. Draft sending uses `sendDraft` and recovers through the same draft ID instead. See [sending and recovery](https://cherami.to/docs/guides/sending) for the full workflow.
+`submit` accepts a record for **23 hours and 59 minutes after preparation**, then throws `SendRecoveryExpiredError`. After that, check `listSentMessages`: if the email isn't there, prepare it again.
 
-## Responses and errors
+`prepareSend` also takes `replyMessage`, `replyAllMessage` and `forwardMessage`. If you call those methods or `sendMessage` directly, supply your own `idempotency_key` and save the request before sending: resending it unchanged within 24 hours returns the first attempt instead of sending again. Drafts send with `sendDraft` and recover by sending the same draft ID again. See [sending and recovery](https://cherami.to/docs/guides/sending) for the full workflow.
 
-Methods return `{ data, status, headers, requestId }`. Parameters use the HTTP field names: path and query fields go at the top level, and JSON input goes in `body`. Timestamps are strings.
+The [examples](https://github.com/cherami-mail/cherami-typescript/blob/main/examples/README.md) read an inbox, prepare a reply and submit it, using the same environment variables.
+
+## Handle errors
 
 ```ts
-import { CheramiApiError, CheramiTransportError } from "@cherami/sdk";
+import { CheramiApiError } from "@cherami/sdk";
 
 try {
   const { data } = await client.getOutboundQuota();
@@ -137,18 +126,15 @@ try {
 } catch (error) {
   if (error instanceof CheramiApiError) {
     console.error(error.status, error.code, error.requestId);
-  } else if (error instanceof CheramiTransportError) {
-    // No usable response. For a send, recover with the saved record above.
-    throw error;
   } else {
     throw error;
   }
 }
 ```
 
-`CheramiApiError` represents an HTTP failure. Its `body` retains the server's error details. `CheramiTransportError` represents a network failure or unusable response; for a write, the request may still have completed.
+`CheramiApiError` is an HTTP error response; its `body` holds the error details. `CheramiTransportError` means no usable response arrived; for a send, submit the same saved record again.
 
-Pass `{ signal, timeoutMs }` as a method's second argument, or its first argument for parameterless methods. The default timeout is 60 seconds, including response-body consumption; `timeoutMs: 0` disables it.
+Requests time out after 60 seconds by default, including reading the response body. Pass `{ signal, timeoutMs }` as a method's second argument, or its first for methods without parameters; `timeoutMs: 0` disables the timeout. The client never retries a request or follows a redirect.
 
 ## API coverage
 
@@ -160,24 +146,16 @@ Pass `{ signal, timeoutMs }` as a method's second argument, or its first argumen
 | Labels | `updateMessageLabels`, `updateSentMessageLabels`, `bulkUpdateMessageLabels`, `bulkUpdateSentLabels`, `listLabels` |
 | Drafts | `createDraft`, `listDrafts`, `getDraft`, `updateDraft`, `deleteDraft`, `sendDraft` |
 | Conversations | `listThreads`, `getThread`, `updateThreadLabels`, `deleteThread` |
+| Trash | `listTrash`, `restoreMessage`, `restoreSentMessage` |
 
-`Params<"sendMessage">` and `Result<"getMessage">` expose operation-specific types. Named models such as `SendInput`, `SendReceipt`, and `ReceivedDetail` are also exported.
+`Params<"sendMessage">` and `Result<"getMessage">` give each operation's types. Named models such as `SendInput`, `SendReceipt` and `ReceivedDetail` are exported too.
 
-For attachments, `await attachment(filename, bytes, contentType)` creates an upload value for `body.attachments`; `attachmentBytes` decodes an attachment retrieved from a sent message or draft. Download methods return a native `Response` in `data`, which you can stream or consume with `arrayBuffer()`. Handle errors during body consumption as well as the initial request.
+To attach a file, `await attachment(filename, bytes, contentType)` creates a value for `body.attachments`; `attachmentBytes` decodes an attachment from a sent message or draft. Download methods return a native `Response` in `data`, which you stream or read with `arrayBuffer()`.
 
-See the [TypeScript guide](https://cherami.to/docs/typescript) for more usage and the [HTTP reference](https://cherami.to/docs/api) for operation parameters and responses. For help, visit [support](https://cherami.to/support).
+See the [TypeScript guide](https://cherami.to/docs/typescript) for more usage and the [HTTP reference](https://cherami.to/docs/api) for every operation's parameters and responses. For help, [contact support](https://cherami.to/support).
 
 ## Development
 
-Use Bun for SDK development:
-
-```sh
-bun install
-bun run build
-```
-
-The build generates types and methods from the bundled `openapi.json` and emits JavaScript and declarations to `dist`. `bun run check` checks TypeScript without emitting. Consumers do not need Bun.
-
-The [examples guide](https://github.com/cherami-mail/cherami-typescript/blob/main/examples/README.md) explains how to run the inbox-reading, reply-preparation, and submission scripts with these same environment variables. See [CONTRIBUTING.md](https://github.com/cherami-mail/cherami-typescript/blob/main/CONTRIBUTING.md) for development and release guidance.
+To work on the SDK itself, see [CONTRIBUTING.md](https://github.com/cherami-mail/cherami-typescript/blob/main/CONTRIBUTING.md). You don't need Bun to use the package.
 
 MIT licensed.

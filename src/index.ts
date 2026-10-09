@@ -20,6 +20,7 @@ const pageFields = {
   listLabels: "labels",
   listThreads: "threads",
   getThread: "messages",
+  listTrash: "messages",
 } as const;
 export type PaginatedOperation = keyof typeof pageFields;
 export type PageItem<O extends PaginatedOperation> = Result<O> extends Record<typeof pageFields[O], (infer Item)[]> ? Item : never;

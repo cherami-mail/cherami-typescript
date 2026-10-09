@@ -7,5 +7,6 @@
   "bulkUpdateMessageLabels", "bulkUpdateSentLabels", "listLabels",
   "sendMessage", "listSentMessages", "replyMessage", "replyAllMessage", "forwardMessage", "getOutboundQuota",
   "createDraft", "listDrafts", "getDraft", "updateDraft", "deleteDraft", "sendDraft",
-  "listThreads", "getThread", "updateThreadLabels", "deleteThread"
+  "listThreads", "getThread", "updateThreadLabels", "deleteThread",
+  "listTrash", "restoreMessage", "restoreSentMessage"
 ]
